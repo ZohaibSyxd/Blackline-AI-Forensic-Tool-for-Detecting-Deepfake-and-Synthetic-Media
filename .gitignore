@@ -1,0 +1,4 @@
+# Data we don't want in Git
+/data/raw/
+/datasets/train/
+/datasets/test/
