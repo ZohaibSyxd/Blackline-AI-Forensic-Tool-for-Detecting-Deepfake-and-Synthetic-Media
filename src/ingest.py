@@ -1,6 +1,6 @@
 # src/ingest.py
 # ingest and move, capturing split
-# python .\src\ingest.py ".\tests" --store ".\data\raw" --move
+# python .\src\ingest.py ".\datasets" --store ".\data\raw" --move
 
 
 import argparse, hashlib, json, os, shutil, sys, time, socket, getpass, mimetypes
