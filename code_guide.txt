@@ -1,4 +1,7 @@
 Why each step is needed
+
+backend testing
+
 1) Intake → immutability → hashing
 What you do: Accept the file, compute a SHA-256, store the raw upload under that hash, log who/when/how.
 Why it matters: This establishes chain-of-custody and lets you prove the exact bytes you analyzed never changed. Your spec explicitly asks for hashing to verify integrity and flag tampering. 
