@@ -3,7 +3,6 @@ Why each step is needed
 What you do: Accept the file, compute a SHA-256, store the raw upload under that hash, log who/when/how.
 Why it matters: This establishes chain-of-custody and lets you prove the exact bytes you analyzed never changed. Your spec explicitly asks for hashing to verify integrity and flag tampering. 
  
-
 2) Format validation & safe decoding
 What you do: Validate container/codec before touching frames; reject weird or broken files.
 Why it matters: Malformed media can crash tools or produce misleading frames. Your “Preprocessing” section calls out format validation up front. 
@@ -24,7 +23,6 @@ Why it matters: Normalization removes confounders (resolution/codec) so models l
 What you do: Precompute ELA maps, noise/FFT/SRM residuals, LBP textures, and copy-move matches.
 Why it matters: These signals are orthogonal to deep nets, great for explainability, and often survive heavy compression. Your brief calls out ELA, noise analysis, LBP, and copy-move explicitly. 
  
-
 7) Temporal inconsistency analysis
 What you do: Track blinks, head pose, facial landmarks; compute per-clip temporal scores.
 Why it matters: Many deepfakes break bio-mechanics and motion coherence (blinks too regular/rare, pose jitter). Your brief lists temporal anomalies as a core technique. 
