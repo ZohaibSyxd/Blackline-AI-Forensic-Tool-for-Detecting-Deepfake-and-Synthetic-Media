@@ -1,14 +1,23 @@
-# src/build_manifest.py
+"""
+src/build_manifest.py
 
-# build a manifest CSV from the audit log, optionally merging labels from metadata.json
-# usage:
-#   python .\src\build_manifest.py --meta .\datasets\train\metadata.json
-#   python .\src\build_manifest.py --audit .\data\audit\ingest_log.jsonl --out .\data\derived\manifest.csv --meta .\datasets\train\metadata.json
+Build a single manifest CSV from the ingest audit log, optionally merging labels
+from a metadata file.
+
+Usage (PowerShell)
+    python .\src\build_manifest.py --audit .\data\audit\ingest_log.jsonl \
+                 --out .\data\derived\manifest.csv --meta .\datasets\train\metadata.json
+
+Notes
+- The audit log is JSONL written by ingest.py (one row per kept asset).
+- Labels are looked up by original filename (case-insensitive) if provided.
+"""
 
 import argparse, csv, json
 from pathlib import Path
 
 def infer_split_from_paths(rec):
+    """Infer dataset split from audit record fields or known path hints."""
     s = (rec.get("split") or "").lower()
     if s in {"train","test","val"}:
         return s
@@ -21,9 +30,11 @@ def infer_split_from_paths(rec):
     return "unknown"
 
 def norm_label(s):
+    """Normalize label values as uppercase strings (REAL/FAKE) by default.
+    """
     if s is None:
         return ""
-    s = str(s).strip().lower()
+        s = str(s).strip().lower()
     if s in {"real","genuine","true","authentic"}:
         return "REAL"
     if s in {"fake","manipulated","deepfake","synthetic"}:

@@ -1,8 +1,22 @@
-# src/probe_media_media.py
+"""
+src/probe_media.py
+
+Probe media files with ffprobe and ExifTool.
+
+What it does
+- Reads unique assets from the ingest audit log.
+- Runs ffprobe to collect container/stream metadata.
+- Runs ExifTool (if available) for EXIF/tags.
+- Writes one JSONL line per asset containing raw tool outputs and a small summary.
+
+Usage (PowerShell)
+    python .\src\probe_media.py --audit .\data\audit\ingest_log.jsonl --out .\data\derived\probe.jsonl
+"""
 import argparse, json, subprocess, shutil, time
 from pathlib import Path
 
 def read_unique_assets(audit_path: Path):
+    """Yield one record per stored_path from the audit log (deduplicated)."""
     seen = set()
     with open(audit_path, encoding="utf-8") as r:
         for line in r:
@@ -14,6 +28,7 @@ def read_unique_assets(audit_path: Path):
             yield rec
 
 def _run(cmd):
+    """Run a subprocess and return stdout (or stderr on failure)."""
     try:
         p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                            check=True, text=True)
@@ -24,6 +39,7 @@ def _run(cmd):
         return e.stdout or e.stderr
 
 def ffprobe_json(path: Path):
+    """Return parsed ffprobe JSON or None if ffprobe is missing/failed."""
     if shutil.which("ffprobe") is None:
         return None
     out = _run(["ffprobe", "-v", "error", "-print_format", "json",
@@ -34,6 +50,7 @@ def ffprobe_json(path: Path):
         return None
 
 def exiftool_json(path: Path):
+    """Return parsed ExifTool JSON (single-object) or None if missing/failed."""
     if shutil.which("exiftool") is None:
         return None
     out = _run(["exiftool", "-json", "-n", str(path)])
@@ -44,6 +61,7 @@ def exiftool_json(path: Path):
         return None
 
 def _parse_rate(s):
+    """Parse a rate like '30000/1001' to a float; returns None on failure."""
     if not s: return None
     try:
         num, den = s.split("/")
@@ -56,6 +74,7 @@ def _parse_rate(s):
             return None
 
 def summarize_ffprobe(probe):
+    """Extract quick fields for convenience (width/height/fps/codec/duration)."""
     if not probe: return {}
     streams = probe.get("streams") or []
     v = next((s for s in streams if s.get("codec_type") == "video"), None)
