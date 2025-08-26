@@ -1,0 +1,80 @@
+.sidebar {
+  width: 260px;
+  min-height: 100vh;
+  background: #fff;
+  border-right: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 0;
+  box-sizing: border-box;
+}
+.sidebar-header {
+  font-weight: bold;
+  font-size: 1.1rem;
+  padding: 0 24px 16px 24px;
+}
+.for-figma {
+  color: #888;
+  font-size: 0.8em;
+}
+.sidebar-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px 16px 24px;
+}
+.sidebar-icon {
+  color: #888;
+  cursor: pointer;
+}
+.sidebar-notification {
+  position: relative;
+  color: #888;
+}
+.badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #e53935;
+  color: #fff;
+  border-radius: 50%;
+  font-size: 0.7em;
+  padding: 2px 6px;
+}
+.sidebar-search {
+  margin: 0 24px 16px 24px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  background: #f5f6fa;
+  outline: none;
+}
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 24px;
+}
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-radius: 6px;
+  color: #222;
+  text-decoration: none;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.sidebar-link.active, .sidebar-link:hover {
+  background: #f5f6fa;
+}
+
+.sidebar-link-button {
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  padding: 0;
+}
