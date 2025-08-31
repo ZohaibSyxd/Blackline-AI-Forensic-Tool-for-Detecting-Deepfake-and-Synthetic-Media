@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <span class="accent-left" aria-hidden="true"></span>
+  <header class="topbar">
+    <div class="container">
+      <h1>Dashboard</h1>
+    </div>
+    <nav class="tabs container" aria-label="Sections">
+      <a class="tab active" href="#">Documents</a>
+      <a class="tab" href="#">Reports</a>
+      <button class="tab more" aria-label="More">…</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section class="uploader" id="drop">
+      <h2>Upload Media for Analysis</h2>
+      <p>Drag & drop image or video here</p>
+      <input id="file" type="file" multiple accept="image/*,video/*,.gif,.mp4,.avi" hidden>
+      <button id="browse" class="btn">Click to browse files</button>
+      <small class="hint">(Supported formats: JPEG, PNG, GIF, MP4, AVI)</small>
+    </section>
+  </main>
+
+  <span class="accent-bottom" aria-hidden="true"></span>
+
+  <script>
+    const drop = document.getElementById('drop');
+    const browse = document.getElementById('browse');
+    const file = document.getElementById('file');
+
+    ['dragenter','dragover'].forEach(ev =>
+      drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); })
+    );
