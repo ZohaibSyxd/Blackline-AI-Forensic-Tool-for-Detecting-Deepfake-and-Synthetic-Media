@@ -37,6 +37,7 @@
   align-items: center;
   gap: 12px;
   padding: 0 24px 16px 24px;
+  position: relative; /* allow absolutely positioned actions */
 }
 .sidebar-icon {
   color: #888;
@@ -62,6 +63,16 @@
 .profile-left { display: flex; align-items: center; }
 .profile-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .profile-actions .add-page-btn { width: 34px; height: 34px; border-radius: 6px; }
+
+/* ensure add button sits at the right edge of the sidebar profile row */
+.sidebar-profile .add-page-btn {
+  position: absolute;
+  right: 12px; /* inner padding */
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* add-page-btn is positioned by the .profile-actions flex container (margin-left:auto) */
   gap: 4px;
   padding: 0 24px;
   flex: 1 1 auto; /* allow nav to grow */
