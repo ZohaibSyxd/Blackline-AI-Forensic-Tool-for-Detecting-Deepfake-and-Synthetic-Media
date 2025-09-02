@@ -1,12 +1,21 @@
 
 import React from "react";
 import "./PageStyles.css";
+import "./FileAnalysis.css";
+import UploadCard from "../components/UploadCard";
 
-const FileAnalysis: React.FC<{ label: string }> = ({ label }) => {
+const FileAnalysis: React.FC<{ label: string; onNavigate?: (p: string) => void; currentPage?: string }> = ({ label, onNavigate, currentPage }) => {
+  // label is like "FILE ANALYSIS 1" or "FILE ANALYSIS 2"
   return (
-    <div className="page-content">
-      <h1>{label}</h1>
-      <p>This is the {label} view. Add your analysis content here.</p>
+    <div>
+      <div className="file-analysis-container">
+        <div className="file-analysis-inner">
+          <div className="file-analysis-content">
+            <UploadCard />
+            <div className="file-analysis-caption">{label}</div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
