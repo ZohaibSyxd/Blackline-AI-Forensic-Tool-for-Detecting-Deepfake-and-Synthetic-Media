@@ -1,16 +1,24 @@
 """
 src/build_manifest.py
 
-Build a single manifest CSV from the ingest audit log, optionally merging labels
-from a metadata file.
+Build a single manifest CSV from the ingest audit log, merging optional labels
+from metadata.json and optional technical fields from probe/validate outputs.
 
 Usage (PowerShell)
-    python .\src\build_manifest.py --audit .\data\audit\ingest_log.jsonl \
-                 --out .\data\derived\manifest.csv --meta .\datasets\train\metadata.json
+        python .\src\build_manifest.py \
+                --audit .\data\audit\ingest_log.jsonl \
+                --out .\data\derived\manifest.csv \
+                --meta .\datasets\train\metadata.json \
+                --probe .\data\derived\probe.jsonl \
+                --validate .\data\derived\validate.jsonl
 
 Notes
 - The audit log is JSONL written by ingest.py (one row per kept asset).
 - Labels are looked up by original filename (case-insensitive) if provided.
+- If probe/validate JSONL files exist, we merge a compact summary of fields
+    such as width/height/fps/codec/duration_s and format/decode flags.
+- For a video-only pipeline, ensure ingest filters non-video types; this script
+    will naturally include only what ingest kept.
 """
 
 import argparse, csv, json
@@ -34,12 +42,22 @@ def norm_label(s):
     """
     if s is None:
         return ""
-        s = str(s).strip().lower()
+    s = str(s).strip().lower()
     if s in {"real","genuine","true","authentic"}:
         return "REAL"
     if s in {"fake","manipulated","deepfake","synthetic"}:
         return "FAKE"
     return s.upper()
+
+def label_to_num(label: str):
+    """Map label strings to numeric codes: REAL->1, FAKE->0, else empty string."""
+    if not label:
+        return ""
+    if label == "REAL":
+        return 1
+    if label == "FAKE":
+        return 0
+    return ""
 
 def load_meta(meta_path: str) -> dict[str, str]:
     if not meta_path:
@@ -66,15 +84,73 @@ def load_meta(meta_path: str) -> dict[str, str]:
         print("Unrecognized metadata.json shape; skipping labels.")
     return mapping
 
+def load_probe_summary(probe_path: str) -> dict[str, dict]:
+    """Load probe.jsonl into mapping by sha256 -> summary fields."""
+    if not probe_path:
+        return {}
+    p = Path(probe_path)
+    if not p.exists():
+        return {}
+    out: dict[str, dict] = {}
+    with open(p, encoding="utf-8") as r:
+        for line in r:
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            sha = rec.get("sha256")
+            if not sha:
+                continue
+            summ = rec.get("summary") or {}
+            out[sha] = {
+                "width": summ.get("width"),
+                "height": summ.get("height"),
+                "fps": summ.get("fps"),
+                "codec": summ.get("codec"),
+                "duration_s": summ.get("duration_s"),
+                "nb_streams": summ.get("nb_streams"),
+            }
+    return out
+
+def load_validate_summary(validate_path: str) -> dict[str, dict]:
+    """Load validate.jsonl into mapping by sha256 -> format/decode + dims/duration."""
+    if not validate_path:
+        return {}
+    p = Path(validate_path)
+    if not p.exists():
+        return {}
+    out: dict[str, dict] = {}
+    with open(p, encoding="utf-8") as r:
+        for line in r:
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            sha = rec.get("sha256")
+            if not sha:
+                continue
+            out[sha] = {
+                "format_valid": rec.get("format_valid"),
+                "decode_valid": rec.get("decode_valid"),
+                "val_width": rec.get("width"),
+                "val_height": rec.get("height"),
+                "val_duration_s": rec.get("duration_s"),
+            }
+    return out
+
 def main():
-    ap = argparse.ArgumentParser(description="Build single manifest CSV (with labels if provided).")
+    ap = argparse.ArgumentParser(description="Build single manifest CSV (labels + probe/validate summaries if provided).")
     ap.add_argument("--audit", default="data/audit/ingest_log.jsonl", help="audit log path")
     ap.add_argument("--out", default="data/derived/manifest.csv", help="output CSV")
     ap.add_argument("--meta", default=None, help="path to metadata.json with labels (optional)")
+    ap.add_argument("--probe", default="data/derived/probe.jsonl", help="path to probe.jsonl (optional)")
+    ap.add_argument("--validate", default="data/derived/validate.jsonl", help="path to validate.jsonl (optional)")
     args = ap.parse_args()
 
     Path(Path(args.out).parent).mkdir(parents=True, exist_ok=True)
     label_map = load_meta(args.meta) if args.meta else {}
+    probe_map = load_probe_summary(args.probe) if args.probe else {}
+    val_map = load_validate_summary(args.validate) if args.validate else {}
 
     seen = set()
     rows = []
@@ -91,14 +167,33 @@ def main():
             lab = label_map.get(orig_name.lower(), "")
             if lab:
                 label_hits += 1
+            # lookups by sha256 for probe/validate summaries
+            sha = rec.get("sha256")
+            ps = probe_map.get(sha, {})
+            vs = val_map.get(sha, {})
             rows.append({
-                "sha256": rec["sha256"],
+                "sha256": sha,
                 "split": infer_split_from_paths(rec),
                 "stored_path": rec["stored_path"],
                 "orig_name": orig_name,
                 "size_bytes": rec.get("size_bytes"),
                 "mime": rec.get("mime"),
-                "label": lab,  # unified manifest includes labels here
+                # labels
+                "label": lab,
+                "label_num": label_to_num(lab),
+                # probe summary
+                "width": ps.get("width"),
+                "height": ps.get("height"),
+                "fps": ps.get("fps"),
+                "codec": ps.get("codec"),
+                "duration_s": ps.get("duration_s"),
+                "nb_streams": ps.get("nb_streams"),
+                # validate summary
+                "format_valid": vs.get("format_valid"),
+                "decode_valid": vs.get("decode_valid"),
+                "val_width": vs.get("val_width"),
+                "val_height": vs.get("val_height"),
+                "val_duration_s": vs.get("val_duration_s"),
             })
 
     if not rows:

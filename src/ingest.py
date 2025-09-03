@@ -4,7 +4,7 @@ src/ingest.py
 Immutable ingest with SHA-256 hashing and an append-only audit log.
 
 What it does
-- Walk a file or directory, filter by known media extensions.
+- Walk a file or directory, filter by known video extensions.
 - Compute SHA-256 for each kept file and store it under data/raw/<sha256>/<orig_name>.
 - Optionally move instead of copy to save disk.
 - Write one JSON line per kept asset to data/audit/ingest_log.jsonl capturing
@@ -21,8 +21,8 @@ Notes
 import argparse, hashlib, json, os, shutil, sys, time, socket, getpass, mimetypes
 from pathlib import Path
 
-# Allowed file extensions for basic media types (images + common video containers)
-ALLOWED_EXTS = {".jpg",".jpeg",".png",".gif",".bmp",".tiff",".mp4",".avi",".mov",".mkv",".webm"}
+# Allowed video file extensions (detection is for videos only)
+ALLOWED_EXTS = {".mp4",".m4v",".avi",".mov",".mkv",".webm",".mpg",".mpeg"}
 
 def sha256sum(path, chunk_size=1024*1024):
     """Compute streaming SHA-256 of a file to avoid loading it entirely into memory."""

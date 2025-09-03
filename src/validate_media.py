@@ -4,64 +4,32 @@ Format validation & safe decoding
 Usage (PowerShell):
   python .\src\validate_media.py --audit .\data\audit\ingest_log.jsonl --out .\data\derived\validate.jsonl
 
-Strategy
-- Images: open with Pillow and call .verify() (no output written).
+Strategy (videos only)
 - Videos: ffprobe to confirm streams; ffmpeg dry-run decode to catch corrupt samples.
 
 Outputs one JSON per asset with fields like:
   sha256, stored_path, mime, media_kind, format_valid, decode_valid, width, height, duration_s, errors[]
 """
 
-import argparse, json, shutil, subprocess, time
+import argparse, json, time
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-
-def read_unique_assets(audit_path: Path):
-    seen = set()
-    with open(audit_path, encoding="utf-8") as r:
-        for line in r:
-            rec = json.loads(line)
-            key = rec.get("stored_path")
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            yield rec
-
+from utils import read_unique_assets, ffprobe_json, ffmpeg_decode_ok
 
 def classify_kind(mime: Optional[str], path: Path) -> str:
     m = (mime or "").lower()
     if m.startswith("image/"):
-        return "image"
+        return "image"  # will be treated as unsupported below
     if m.startswith("video/"):
         return "video"
     # fallback by extension
     ext = path.suffix.lower()
-    if ext in {".jpg",".jpeg",".png",".gif",".bmp",".tiff",".tif",".webp"}: # We dont want image
-        return "image"
+    if ext in {".jpg",".jpeg",".png",".gif",".bmp",".tiff",".tif",".webp"}:
+        return "image"  # will be treated as unsupported below
     if ext in {".mp4",".avi",".mov",".mkv",".webm",".m4v",".mpg",".mpeg"}:
         return "video"
     return "other"
-
-
-def _run(cmd: List[str]) -> subprocess.CompletedProcess:
-    try:
-        return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
-    except subprocess.CalledProcessError as e:
-        return e
-
-
-def ffprobe_json(path: Path) -> Optional[Dict[str, Any]]:
-    if shutil.which("ffprobe") is None:
-        return None
-    p = _run(["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)])
-    if p.returncode != 0:
-        return None
-    try:
-        return json.loads(p.stdout)
-    except Exception:
-        return None
-
 
 def summarize_probe(probe: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     out = {"width": None, "height": None, "duration_s": None, "video_streams": 0, "audio_streams": 0}
@@ -83,17 +51,6 @@ def summarize_probe(probe: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         out["width"] = v0.get("width")
         out["height"] = v0.get("height")
     return out
-
-
-def ffmpeg_decode_ok(path: Path) -> Optional[bool]:
-    """Return True if a decode dry-run succeeds, False if ffmpeg reports errors, None if ffmpeg missing."""
-    if shutil.which("ffmpeg") is None:
-        return None
-    # -v error: only show errors; -xerror: exit on first error; -f null -: decode and discard output
-    # -nostdin: avoid blocking on stdin in some shells
-    p = _run(["ffmpeg", "-v", "error", "-xerror", "-nostdin", "-i", str(path), "-f", "null", "-"])
-    return p.returncode == 0
-
 
 def pillow_verify(path: Path) -> Dict[str, Any]:
     res = {"format_valid": None, "width": None, "height": None, "error": None}
@@ -175,12 +132,10 @@ def main():
             decode_valid: Optional[bool] = None
 
             if kind == "image":
-                res = pillow_verify(path)
-                width, height = res.get("width"), res.get("height")
-                format_valid = res.get("format_valid")
-                if res.get("error"):
-                    errors.append(res["error"])  # include pillow error if any
-                # decode_valid not applicable for images
+                # For a video-only pipeline, images are not supported
+                format_valid = False
+                decode_valid = None
+                errors.append("unsupported_kind:image")
             elif kind == "video":
                 probe = ffprobe_json(path)
                 summ = summarize_probe(probe)
