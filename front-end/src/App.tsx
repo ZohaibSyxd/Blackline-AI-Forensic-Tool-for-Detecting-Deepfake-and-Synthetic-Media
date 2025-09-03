@@ -43,13 +43,24 @@ const App: React.FC = () => {
 		navigate(newKey);
 	};
 
-	const deletePage = (key: string) => {
-		setPages((p) => p.filter((x) => x.key !== key));
-		// if the deleted page was the lastFilePage, clear lastFilePage to a default
-		setLastFilePage((prev) => (prev === key ? 'file1' : prev));
-		// if we're currently viewing the deleted page, navigate to dashboard
-		if (page === key) navigate('dashboard');
-	};
+		const deletePage = (key: string) => {
+			setPages((p) => p.filter((x) => x.key !== key));
+			// if the deleted page was the lastFilePage, clear lastFilePage to a default
+			setLastFilePage((prev) => (prev === key ? 'file1' : prev));
+			// if we're currently viewing the deleted page, navigate to dashboard
+			if (page === key) navigate('dashboard');
+		};
+
+		// Bulk delete multiple pages by key
+		const deletePages = (keys: string[]) => {
+			if (!keys || keys.length === 0) return;
+			const keySet = new Set(keys);
+			setPages((p) => p.filter((x) => !keySet.has(x.key)));
+			// if any deleted page was the lastFilePage, reset to default
+			setLastFilePage((prev) => (prev && keySet.has(prev) ? 'file1' : prev));
+			// if we're currently viewing a deleted page, navigate to dashboard
+			if (keySet.has(page)) navigate('dashboard');
+		};
 
 	// Reorder pages (only reorders non-dashboard items).
 	const reorderPages = (fromKey: string, toIndex: number) => {
@@ -98,7 +109,7 @@ const App: React.FC = () => {
 		return (
 			<div className="app-layout">
 				{/* if we're on reports, keep the sidebar highlighting the last visited file */}
-				<Sidebar active={page === 'reports' ? lastFilePage : page} onNavigate={navigate} onAddPage={addPage} onDeletePage={deletePage} onRenamePage={renamePage} onReorder={reorderPages} pages={pages} />
+				<Sidebar active={page === 'reports' ? lastFilePage : page} onNavigate={navigate} onAddPage={addPage} onDeletePage={deletePage} onBulkDelete={deletePages} onRenamePage={renamePage} onReorder={reorderPages} pages={pages} />
 				<NewAnalysisModal isOpen={isNewModalOpen} defaultName={`FILE ANALYSIS ${fileCount}`} onClose={() => setIsNewModalOpen(false)} onCreate={createPage} />
 				<main className="main-content">
 				{ /* determine header title: if viewing a file page, show its label; otherwise show Dashboard */ }

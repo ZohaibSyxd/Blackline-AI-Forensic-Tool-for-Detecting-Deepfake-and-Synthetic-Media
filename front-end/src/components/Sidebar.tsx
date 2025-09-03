@@ -9,6 +9,7 @@ interface SidebarProps {
   onNavigate: (page: string) => void;
   onAddPage?: () => void;
   onDeletePage?: (key: string) => void;
+  onBulkDelete?: (keys: string[]) => void;
   onRenamePage?: (key: string) => void;
   onReorder?: (fromKey: string, toIndex: number) => void;
   pages: { key: string; label: string; icon?: string }[];
@@ -16,9 +17,12 @@ interface SidebarProps {
 
 // pages are provided by the parent (App) so the sidebar reflects dynamic additions
 
-const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDeletePage, onRenamePage, onReorder, pages }) => {
+const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDeletePage, onBulkDelete, onRenamePage, onReorder, pages }) => {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  // multi-select state for bulk actions
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const lastClickedRef = useRef<string | null>(null);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<HTMLDivElement | null>(null);
 
@@ -106,65 +110,115 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
           <Droppable droppableId="sidebar-pages">
             {(provided) => (
               <div ref={provided.innerRef} {...provided.droppableProps}>
-                {pages.filter(p => p.key !== 'dashboard').map((item, idx) => (
-                  <Draggable key={item.key} draggableId={item.key} index={idx}>
-                    {(providedDraggable, snapshot) => (
-                      <div
-                        ref={providedDraggable.innerRef}
-                        {...providedDraggable.draggableProps}
-                        {...providedDraggable.dragHandleProps}
-                        className={`sidebar-item${(active === item.key || openMenu === item.key) ? " active" : ""} ${snapshot.isDragging ? 'dragging' : ''}`}
-                      >
-                          <button
-                          className="sidebar-link sidebar-link-button"
-                          aria-label={`Open ${item.label}`}
-                          onClick={() => {
-                            if (item.key === 'dashboard') {
-                              onAddPage && onAddPage();
-                            } else {
-                              onNavigate(item.key);
-                            }
-                          }}
-                        >
-                          <div className="sidebar-link-left">
-                              {item.key === 'dashboard' ? (
-                              <span className="home-replace-inline"><span className="home-add-icon" aria-hidden>+</span><span className="new-bubble">NEW ANALYSIS</span></span>
-                            ) : (
-                              <>
-                                {/* show user-selected icon (emoji) if present, otherwise fallback to folder svg */}
-                                {item.icon ? (
-                                        <span className="sidebar-item-icon" aria-hidden>{item.icon}</span>
-                                      ) : (
-                                        <span className="sidebar-item-icon folder-emoji" aria-hidden>📁</span>
-                                      )}
-                                <span className="sidebar-label">{item.label}</span>
-                              </>
+                {/* bulk action bar shown when there are selected items */}
+                {selectedKeys.length > 0 && (
+                  <div className="sidebar-bulk-bar">
+                    <div className="bulk-info">{selectedKeys.length} selected</div>
+                    <div className="bulk-actions">
+                      <button className="item-menu-btn" onClick={() => { setSelectedKeys([]); }}>Clear</button>
+                      <button
+                        className="item-menu-btn danger"
+                        onClick={() => {
+                          if (!window.confirm(`Delete ${selectedKeys.length} pages?`)) return;
+                          if (onBulkDelete) {
+                            onBulkDelete(selectedKeys);
+                          } else if (onDeletePage) {
+                            selectedKeys.forEach(k => onDeletePage(k));
+                          }
+                          setSelectedKeys([]);
+                        }}
+                      >Delete</button>
+                    </div>
+                  </div>
+                )}
+                {pages.filter(p => p.key !== 'dashboard').map((item, idx) => {
+                  const isSelected = selectedKeys.includes(item.key);
+                  return (
+                    <Draggable key={item.key} draggableId={item.key} index={idx}>
+                      {(providedDraggable, snapshot) => {
+                        return (
+                          <div
+                            ref={providedDraggable.innerRef}
+                            {...providedDraggable.draggableProps}
+                            {...providedDraggable.dragHandleProps}
+                            className={`sidebar-item${(active === item.key || openMenu === item.key) ? " active" : ""} ${snapshot.isDragging ? 'dragging' : ''}`}
+                          >
+                            <div className="sidebar-link-left">
+                              <input
+                                type="checkbox"
+                                className="sidebar-checkbox"
+                                aria-label={`Select ${item.label}`}
+                                checked={isSelected}
+                                onClick={(e) => {
+                                  const checked = (e as unknown as MouseEvent & { target: HTMLInputElement }).target['checked'];
+                                  const shift = (e as unknown as MouseEvent).shiftKey;
+                                  setSelectedKeys(prev => {
+                                    if (shift && lastClickedRef.current) {
+                                      const others = pages.filter(p => p.key !== 'dashboard');
+                                      const start = others.findIndex(p => p.key === lastClickedRef.current);
+                                      const end = others.findIndex(p => p.key === item.key);
+                                      if (start !== -1 && end !== -1) {
+                                        const [a, b] = start < end ? [start, end] : [end, start];
+                                        const rangeKeys = others.slice(a, b + 1).map(x => x.key);
+                                        if (checked) {
+                                          return Array.from(new Set([...prev, ...rangeKeys]));
+                                        } else {
+                                          return prev.filter(k => !rangeKeys.includes(k));
+                                        }
+                                      }
+                                    }
+                                    if (checked) return Array.from(new Set([...prev, item.key]));
+                                    return prev.filter(k => k !== item.key);
+                                  });
+                                  lastClickedRef.current = item.key;
+                                  // stop propagation so row click doesn't navigate
+                                  (e as any).stopPropagation();
+                                }}
+                              />
+                              <button
+                                className="sidebar-link sidebar-link-button"
+                                aria-label={`Open ${item.label}`}
+                                onClick={() => onNavigate(item.key)}
+                              >
+                                {item.key === 'dashboard' ? (
+                                  <span className="home-replace-inline"><span className="home-add-icon" aria-hidden>+</span><span className="new-bubble">NEW ANALYSIS</span></span>
+                                ) : (
+                                  <>
+                                    {item.icon ? (
+                                      <span className="sidebar-item-icon" aria-hidden>{item.icon}</span>
+                                    ) : (
+                                      <span className="sidebar-item-icon folder-emoji" aria-hidden>📁</span>
+                                    )}
+                                    <span className="sidebar-label">{item.label}</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                            {/* action: three dots - visible on hover or when active; don't show for dashboard */}
+                            {item.key !== 'dashboard' && (
+                              <div className="sidebar-actions-wrap">
+                                <button
+                                  className="item-actions"
+                                  title="More"
+                                  onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === item.key ? null : item.key); }}
+                                >
+                                  &#8230;
+                                </button>
+
+                                {openMenu === item.key && (
+                                  <div className="item-menu" onClick={(e) => e.stopPropagation()}>
+                                    <button className="item-menu-btn" onClick={() => { onRenamePage && onRenamePage(item.key); setOpenMenu(null); }}>Rename</button>
+                                    <button className="item-menu-btn danger" onClick={() => { onDeletePage && onDeletePage(item.key); setOpenMenu(null); }}>Delete</button>
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
-                          {/* action: three dots - visible on hover or when active; don't show for dashboard */}
-                          {item.key !== 'dashboard' && (
-                            <div className="sidebar-actions-wrap">
-                              <button
-                                className="item-actions"
-                                title="More"
-                                onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === item.key ? null : item.key); }}
-                              >
-                                &#8230;
-                              </button>
-
-                              {openMenu === item.key && (
-                                <div className="item-menu" onClick={(e) => e.stopPropagation()}>
-                                  <button className="item-menu-btn" onClick={() => { onRenamePage && onRenamePage(item.key); setOpenMenu(null); }}>Rename</button>
-                                  <button className="item-menu-btn danger" onClick={() => { onDeletePage && onDeletePage(item.key); setOpenMenu(null); }}>Delete</button>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </Draggable>
-                ))}
+                        );
+                      }}
+                    </Draggable>
+                  );
+                })}
                 {provided.placeholder}
               </div>
             )}

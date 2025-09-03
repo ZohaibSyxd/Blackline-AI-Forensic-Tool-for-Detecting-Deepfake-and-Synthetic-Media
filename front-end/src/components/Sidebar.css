@@ -164,7 +164,11 @@
 }
 
 .sidebar-item {
-  display: block;
+  /* make each row a horizontal flex container so actions sit to the right */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .sidebar-link {
@@ -306,6 +310,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 1 1 auto; /* allow label area to take remaining space and shrink when needed */
+  min-width: 0; /* allow inner label to ellipsize */
 }
 .sidebar-link-left svg {
   width: 18px;
@@ -398,7 +404,33 @@
 .sidebar-link-button {
   background: none;
   border: none;
-  width: 100%;
+  width: auto; /* don't force full width so actions can live on the right */
   text-align: left;
   padding: 0;
+  flex: 1 1 auto; /* expand to fill available space between checkbox/icon and actions */
+  min-width: 0;
 }
+
+/* Bulk selection checkbox in each row */
+.sidebar-checkbox {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  flex: 0 0 auto;
+}
+
+/* Bulk action bar shown above the list when items are selected */
+.sidebar-bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  margin: 8px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e6eef8;
+}
+.sidebar-bulk-bar .bulk-info { font-weight: 600; color: #111827; }
+.sidebar-bulk-bar .bulk-actions { display:flex; gap:8px; }
+.sidebar-bulk-bar .item-menu-btn { background: transparent; border: none; cursor: pointer; padding: 6px 10px; border-radius:6px; }
+.sidebar-bulk-bar .item-menu-btn.danger { color: #b91c1c; }
