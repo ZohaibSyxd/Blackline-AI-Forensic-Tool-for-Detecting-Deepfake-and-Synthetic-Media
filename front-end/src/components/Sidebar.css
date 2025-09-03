@@ -1,5 +1,5 @@
 .sidebar {
-  width: var(--sidebar-width, 280px);
+  width: var(--sidebar-width, 300px);
   min-height: 100vh;
   background: #fff;
   border-right: 1px solid #e0e0e0;
@@ -7,7 +7,7 @@
   flex-direction: column;
   padding: 16px 0;
   box-sizing: border-box;
-  min-width: 280px; /* enforce a lowest minimum width so logo doesn't get squished */
+  min-width: 300px; /* enforce a lowest minimum width so logo doesn't get squished; matches JS min */
   position: relative; /* allow absolute children like the resize handle to position correctly */
 }
 .sidebar-header {
@@ -136,7 +136,25 @@
 .visually-hidden { position: absolute !important; height: 1px; width: 1px; overflow: hidden; clip: rect(1px, 1px, 1px, 1px); white-space: nowrap; }
 
 /* NEW ANALYSIS button variant used in header and inline */
-.home-replace-button { display:flex; align-items:center; gap:8px; padding:8px 12px; margin:8px auto; width:calc(100% - 40px); max-width: calc(var(--sidebar-width, 280px) - 40px); border-radius:10px; background:#fff; border:1px solid #eef0f6; cursor:pointer; }
+.home-replace-button {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 12px;
+  /* place with fixed horizontal gutters and make the button width follow the sidebar width
+    so it remains identical at the sidebar min width (sidebar width minus gutters) */
+  margin: 8px 20px; /* keep horizontal gutters */
+  width: calc(var(--sidebar-width, 300px) - 40px);
+  /* min-width set to sidebar min (300px) minus horizontal gutters (40px) = 260px */
+  min-width: 260px; /* firm minimum width so button equals sidebar when at min width */
+  border-radius:10px;
+  background:#fff;
+  border:1px solid #eef0f6;
+  cursor:pointer;
+  flex: 0 0 auto; /* don't shrink */
+  box-sizing: border-box;
+  padding-right: 16px; /* smaller right reserve so label has more room */
+}
 .home-replace-button .home-add-icon { width:34px; height:34px; border-radius:8px; background:#fff; display:inline-flex; align-items:center; justify-content:center; font-weight:700; }
 .home-replace-inline { display:inline-flex; align-items:center; gap:8px; }
 .home-replace-inline .home-add-icon { width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; }
@@ -161,6 +179,8 @@
   text-decoration: none;
   font-weight: 500;
   cursor: pointer;
+  flex: 0 1 auto; /* allow shrinking when necessary but let inner text truncate */
+
 }
 
 .sidebar-item.active .sidebar-link, .sidebar-link:hover {
@@ -173,6 +193,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  height: 48px; /* match the row height so children can center perfectly */
 }
 
 .item-actions {
@@ -182,9 +203,11 @@
   font-size: 18px;
   width: 32px;
   height: 32px;
-  display: inline-flex;
+  display: flex; /* use full flexbox centering */
   align-items: center;
   justify-content: center;
+  padding: 0; /* remove any extra padding that shifts baseline */
+  line-height: 1; /* ensure glyph sits centered */
   visibility: hidden; /* keep layout, but hidden by default */
   opacity: 0;
   transition: opacity 0.12s ease, visibility 0.12s;
@@ -328,7 +351,10 @@
   /* center the box and leave small horizontal gutters */
   width: calc(100% - 40px);
   margin: 8px auto;
-  max-width: calc(var(--sidebar-width, 280px) - 40px);
+  max-width: calc(var(--sidebar-width, 300px) - 40px);
+  /* firm minimum so the compact appearance matches the design sample */
+  min-width: 260px;
+  flex: 0 0 auto;
 }
 .home-add-icon {
   width: 34px;
@@ -343,15 +369,26 @@
   align-items: center;
   justify-content: center;
 }
-.home-replace:hover { background: #f5f7ff; box-shadow: 0 8px 20px rgba(20,24,64,0.06); transform: translateY(-1px); }
 .new-bubble {
   background: #eef2ff;
-  color: #3730a3;
-  font-size: 0.78rem;
+  flex: 0 1 auto;
   padding: 6px 10px;
   border-radius: 999px;
   font-weight: 600;
   display: inline-block;
+}
+
+/* allow the NEW ANALYSIS label to truncate instead of pushing layout when the sidebar is at min width */
+.home-replace-button .new-bubble,
+.home-replace .new-bubble,
+.home-replace-inline .new-bubble {
+  display: inline-block;
+  max-width: calc(100% - 56px); /* leave room for the + icon and gutters */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 88px; /* ensure label keeps readable length */
+  flex: 0 0 auto; /* do not shrink further */
 }
 .home-label { color: #6b7280; margin-left: 6px; font-weight: 600; }
 .sidebar-link.active, .sidebar-link:hover {

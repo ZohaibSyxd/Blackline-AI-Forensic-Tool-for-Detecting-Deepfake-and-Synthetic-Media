@@ -49,7 +49,7 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
     const onPointerMove = (e: PointerEvent) => {
       const dx = e.clientX - startX;
       let newWidth = startWidth + dx;
-      const min = 200; // minimum width in px
+  const min = 300; // minimum width in px (matches CSS .sidebar min-width)
       const max = 420; // maximum width
       if (newWidth < min) newWidth = min;
       if (newWidth > max) newWidth = max;
