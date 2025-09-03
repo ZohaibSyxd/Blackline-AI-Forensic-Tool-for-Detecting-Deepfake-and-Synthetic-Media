@@ -1,5 +1,5 @@
 .sidebar {
-  width: 260px;
+  width: var(--sidebar-width, 280px);
   min-height: 100vh;
   background: #fff;
   border-right: 1px solid #e0e0e0;
@@ -7,6 +7,8 @@
   flex-direction: column;
   padding: 16px 0;
   box-sizing: border-box;
+  min-width: 280px; /* enforce a lowest minimum width so logo doesn't get squished */
+  position: relative; /* allow absolute children like the resize handle to position correctly */
 }
 .sidebar-header {
   font-weight: bold;
@@ -38,6 +40,32 @@
   gap: 12px;
   padding: 0 24px 16px 24px;
   position: relative; /* allow absolutely positioned actions */
+}
+
+/* Resize handle on the right edge of the sidebar */
+.sidebar-resize-handle {
+  position: absolute;
+  right: -6px; /* slightly overlap the main area so it's visible on the edge */
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  cursor: ew-resize;
+  z-index: 9999; /* ensure it's above other content */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(90deg, rgba(0,0,0,0.00), rgba(0,0,0,0.03));
+  transition: background 120ms ease;
+}
+.sidebar-resize-handle::before {
+  content: "";
+  width: 3px;
+  height: 40%;
+  background: #9ca3af; /* darker vertical bar for visibility */
+  border-radius: 3px;
+}
+.sidebar-resize-handle:hover {
+  background: linear-gradient(90deg, rgba(0,0,0,0.00), rgba(0,0,0,0.10));
 }
 .sidebar-icon {
   color: #888;
@@ -89,6 +117,7 @@
 }
 .sidebar-item {
   display: block;
+  position: relative; /* ensure pseudo-elements (insertion line) are positioned inside each item */
 }
 
 .sidebar-item {
@@ -100,7 +129,8 @@
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 10px 8px;
+  padding: 0 8px; /* vertical padding removed in favor of fixed height */
+  height: 48px; /* fixed height to avoid jumps */
   border-radius: 6px;
   color: #222;
   text-decoration: none;
@@ -112,16 +142,32 @@
   background: #f5f6fa;
 }
 
+.sidebar-actions-wrap {
+  position: relative;
+  min-width: 44px; /* reserve space for the action button so layout doesn't shift */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .item-actions {
-  display: none;
   border: none;
   background: transparent;
   cursor: pointer;
   font-size: 18px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  visibility: hidden; /* keep layout, but hidden by default */
+  opacity: 0;
+  transition: opacity 0.12s ease, visibility 0.12s;
 }
 
 .sidebar-item:hover .item-actions, .sidebar-item.active .item-actions {
-  display: inline-block;
+  visibility: visible;
+  opacity: 1;
 }
 
 .sidebar-actions-wrap {
@@ -153,6 +199,23 @@
 .item-menu-btn.danger {
   color: #b91c1c;
 }
+
+/* Highlight menu options on hover and show focus outline for keyboard users */
+.item-menu-btn {
+  width: 100%;
+  display: block;
+  border-radius: 6px;
+}
+.item-menu-btn:hover {
+  background: #f5f6fa;
+}
+.item-menu-btn:focus {
+  outline: 3px solid rgba(59,130,246,0.12);
+  outline-offset: 2px;
+}
+.item-menu-btn.danger:hover {
+  background: rgba(249, 231, 235, 0.6);
+}
 .sidebar-link {
   display: flex;
   align-items: center;
@@ -165,6 +228,97 @@
   cursor: pointer;
   transition: background 0.15s;
 }
+
+/* Drag & drop visuals */
+.sidebar-item.dragging {
+  opacity: 0.6;
+}
+.sidebar-item.drop-above::after,
+.sidebar-item.drop-below::after {
+  content: "";
+  position: absolute;
+  /* align the insertion line with the text area (leave icon spacing) */
+  left: 44px; /* icon (18px) + gap + some padding */
+  right: 12px;
+  height: 2px;
+  background: #1f6feb;
+  border-radius: 2px;
+  box-shadow: 0 1px 0 rgba(31,111,235,0.18);
+  pointer-events: none;
+}
+.sidebar-item.drop-above::after {
+  top: 16px; /* slightly inside the item */
+}
+.sidebar-item.drop-below::after {
+  bottom: 16px;
+}
+
+/* place icon to the left of the label */
+.sidebar-link-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sidebar-link-left svg {
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  color: #111827;
+  flex: 0 0 18px; /* don't allow the icon to shrink */
+}
+
+.sidebar-link-left { min-width: 0; }
+.sidebar-label {
+  display: inline-block;
+  flex: 1 1 auto; /* allow to grow/shrink inside the left container */
+  min-width: 0; /* allow the flex item to shrink below its content width */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Home replacement styles: a plus button and NEW ANALYSIS bubble */
+.home-replace {
+  display: flex;
+  align-items: center;
+  justify-content: center; /* keep contents centered */
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid #eef0f6;
+  background: #fff;
+  transition: background 0.15s, box-shadow 0.15s, transform 0.06s;
+  cursor: pointer;
+  box-sizing: border-box;
+  /* center the box and leave small horizontal gutters */
+  width: calc(100% - 40px);
+  margin: 8px auto;
+  max-width: calc(var(--sidebar-width, 280px) - 40px);
+}
+.home-add-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  color: #1f2937;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.home-replace:hover { background: #f5f7ff; box-shadow: 0 8px 20px rgba(20,24,64,0.06); transform: translateY(-1px); }
+.new-bubble {
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 0.78rem;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  display: inline-block;
+}
+.home-label { color: #6b7280; margin-left: 6px; font-weight: 600; }
 .sidebar-link.active, .sidebar-link:hover {
   background: #f5f6fa;
 }

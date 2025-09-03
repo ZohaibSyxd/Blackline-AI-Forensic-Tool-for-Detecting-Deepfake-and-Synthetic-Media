@@ -47,6 +47,22 @@ const App: React.FC = () => {
 		if (page === key) navigate('dashboard');
 	};
 
+	// Reorder pages (only reorders non-dashboard items).
+	const reorderPages = (fromKey: string, toIndex: number) => {
+		setPages((prev) => {
+			const dashboard = prev.find(p => p.key === 'dashboard');
+			const others = prev.filter(p => p.key !== 'dashboard');
+			const fromIdx = others.findIndex(p => p.key === fromKey);
+			if (fromIdx === -1) return prev; // nothing to do
+			const item = others.splice(fromIdx, 1)[0];
+			// clamp toIndex
+			if (toIndex < 0) toIndex = 0;
+			if (toIndex > others.length) toIndex = others.length;
+			others.splice(toIndex, 0, item);
+			return dashboard ? [dashboard, ...others] : [{ key: 'dashboard', label: 'HOME PAGE' }, ...others];
+		});
+	};
+
 	const renamePage = (key: string) => {
 		const current = pages.find(p => p.key === key);
 		const currentLabel = current ? current.label : '';
@@ -78,7 +94,7 @@ const App: React.FC = () => {
 		return (
 			<div className="app-layout">
 				{/* if we're on reports, keep the sidebar highlighting the last visited file */}
-				<Sidebar active={page === 'reports' ? lastFilePage : page} onNavigate={navigate} onAddPage={addPage} onDeletePage={deletePage} onRenamePage={renamePage} pages={pages} />
+				<Sidebar active={page === 'reports' ? lastFilePage : page} onNavigate={navigate} onAddPage={addPage} onDeletePage={deletePage} onRenamePage={renamePage} onReorder={reorderPages} pages={pages} />
 				<main className="main-content">
 				<SectionHeader currentPage={page} onNavigate={navigate} lastFilePage={lastFilePage} />
 					{content}
