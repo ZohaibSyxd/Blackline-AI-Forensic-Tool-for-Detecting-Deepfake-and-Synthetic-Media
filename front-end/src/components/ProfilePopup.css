@@ -1,0 +1,43 @@
+.profile-popup {
+  width: 240px;
+  background: #fff;
+  color: #111827;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  padding: 12px;
+  position: absolute;
+  left: 16px;
+  bottom: 64px;
+  z-index: 60;
+  font-size: 13px;
+}
+
+.pp-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.pp-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: linear-gradient(135deg,#6366f1,#8b5cf6);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+.pp-info { display:flex; flex-direction:column; }
+.pp-name { font-weight:600; color:#0f172a; }
+.pp-email { color:#6b7280; font-size:12px; }
+
+.pp-badge-wrap { margin-top:8px; display:flex; }
+.pp-badge { font-size:12px; padding:6px 8px; border-radius:999px; display:inline-block; }
+.pp-badge.guest { background:#eef2ff; color:#4f46e5; }
+.pp-badge.premium { background:linear-gradient(90deg,#fde68a,#fca5a5); color:#7c2d12; }
+
+.pp-actions { margin-top:10px; display:flex; flex-direction:column; gap:8px; }
+.pp-btn { background:#111827; color:white; border-radius:6px; padding:8px 10px; border:0; cursor:pointer; font-weight:600; }
+.pp-btn.ghost { background:transparent; color:#374151; border:1px solid #e5e7eb; }
+.pp-btn.pp-upgrade { background:linear-gradient(90deg,#06b6d4,#8b5cf6); }

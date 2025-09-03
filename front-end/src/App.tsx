@@ -7,13 +7,15 @@ import FileAnalysis from "./pages/FileAnalysis";
 import Reports from "./pages/Reports";
 import SectionHeader from "./components/SectionHeader";
 import React, { useState } from "react";
+import NewAnalysisModal from "./components/NewAnalysisModal";
 
 
 const App: React.FC = () => {
 	const [page, setPage] = useState<string>("dashboard");
 	const [lastFilePage, setLastFilePage] = useState<string>("file1");
 	const [fileCount, setFileCount] = useState<number>(4); // next file index (existing files: 1,2,3,$)
-	const [pages, setPages] = useState<{ key: string; label: string }[]>([
+	const [isNewModalOpen, setIsNewModalOpen] = useState<boolean>(false);
+	const [pages, setPages] = useState<{ key: string; label: string; icon?: string }[]>([
 		{ key: 'dashboard', label: 'HOME PAGE' },
 		{ key: 'file2', label: 'FILE ANALYSIS 2' },
 		{ key: 'file1', label: 'FILE ANALYSIS 1' },
@@ -30,13 +32,15 @@ const App: React.FC = () => {
 		}
 	};
 
-	const addPage = () => {
-	const newKey = `file${fileCount}`;
-	const newLabel = `FILE ANALYSIS ${fileCount}`;
-	setFileCount((c) => c + 1);
-	setPages((p) => [...p, { key: newKey, label: newLabel }]);
-	// navigate to the new file page
-	navigate(newKey);
+	const addPage = () => setIsNewModalOpen(true);
+
+	const createPage = (name: string, icon?: string) => {
+		const newKey = `file${fileCount}`;
+		setFileCount((c) => c + 1);
+		setPages((p) => [...p, { key: newKey, label: name, icon }]);
+		setIsNewModalOpen(false);
+		// navigate to the new file page
+		navigate(newKey);
 	};
 
 	const deletePage = (key: string) => {
@@ -95,8 +99,14 @@ const App: React.FC = () => {
 			<div className="app-layout">
 				{/* if we're on reports, keep the sidebar highlighting the last visited file */}
 				<Sidebar active={page === 'reports' ? lastFilePage : page} onNavigate={navigate} onAddPage={addPage} onDeletePage={deletePage} onRenamePage={renamePage} onReorder={reorderPages} pages={pages} />
+				<NewAnalysisModal isOpen={isNewModalOpen} defaultName={`FILE ANALYSIS ${fileCount}`} onClose={() => setIsNewModalOpen(false)} onCreate={createPage} />
 				<main className="main-content">
-				<SectionHeader currentPage={page} onNavigate={navigate} lastFilePage={lastFilePage} />
+				{ /* determine header title: if viewing a file page, show its label; otherwise show Dashboard */ }
+			<SectionHeader currentPage={page} onNavigate={navigate} lastFilePage={lastFilePage} title={
+				page.startsWith('file')
+				    ? (pages.find(p => p.key === page)?.label || 'File Analysis')
+				    : (page === 'reports' ? (pages.find(p => p.key === lastFilePage)?.label || 'Reports') : 'Dashboard')
+			    } />
 					{content}
 					</main>
 			</div>

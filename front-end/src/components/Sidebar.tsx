@@ -1,7 +1,8 @@
 
 import React, { useState, useRef, useEffect } from "react";
-import { FaFolderOpen, FaCog, FaUserCircle } from "react-icons/fa";
+import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import "./Sidebar.css";
+import ProfilePopup from './ProfilePopup';
 
 interface SidebarProps {
   active: string;
@@ -10,13 +11,14 @@ interface SidebarProps {
   onDeletePage?: (key: string) => void;
   onRenamePage?: (key: string) => void;
   onReorder?: (fromKey: string, toIndex: number) => void;
-  pages: { key: string; label: string }[];
+  pages: { key: string; label: string; icon?: string }[];
 }
 
 // pages are provided by the parent (App) so the sidebar reflects dynamic additions
 
 const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDeletePage, onRenamePage, onReorder, pages }) => {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<HTMLDivElement | null>(null);
 
@@ -84,131 +86,106 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
       <div className="sidebar-header">
         <span className="logo">Blackline Forensics <span className="for-figma">AI</span></span>
       </div>
-      <div className="sidebar-profile">
-        <div className="profile-left">
-          <FaUserCircle size={36} />
-        </div>
-        <div className="profile-actions">
-          <FaCog className="sidebar-icon" />
-        </div>
-      </div>
+  {/* top area intentionally kept minimal (logo above). Profile and settings moved to the footer below the search */}
       {/* render NEW ANALYSIS as its own centered box so it can resize with the sidebar */}
       <div className="home-container">
-        <div
-          className="home-replace"
-          onClick={() => { onAddPage && onAddPage(); }}
-          role="button"
-          tabIndex={0}
-        >
-          <button
-            className="home-add-icon"
-            title="New analysis"
-            onClick={(e) => { e.stopPropagation(); onAddPage && onAddPage(); }}
-          >
-            +
-          </button>
+        <button className="home-replace-button" onClick={() => { onAddPage && onAddPage(); }}>
+          <span className="home-add-icon" aria-hidden>+</span>
           <span className="new-bubble">NEW ANALYSIS</span>
-        </div>
+        </button>
       </div>
-  <nav className="sidebar-nav">
-        {pages.filter(p => p.key !== 'dashboard').map((item, idx) => (
-          <div
-            key={item.key}
-            className={`sidebar-item${(active === item.key || openMenu === item.key) ? " active" : ""}`}
-            draggable={true}
-            onDragStart={(e) => {
-              e.dataTransfer?.setData('text/plain', item.key);
-              e.dataTransfer!.effectAllowed = 'move';
-              // add dragging class for visual
-              (e.currentTarget as HTMLElement).classList.add('dragging');
-            }}
-            onDragEnd={(e) => {
-              (e.currentTarget as HTMLElement).classList.remove('dragging');
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              e.dataTransfer!.dropEffect = 'move';
-              const el = e.currentTarget as HTMLElement;
-              // determine whether pointer is in top or bottom half
-              const rect = el.getBoundingClientRect();
-              const mid = rect.top + rect.height / 2;
-              el.classList.remove('drag-over', 'drop-above', 'drop-below');
-              if (e.clientY < mid) {
-                el.classList.add('drop-above');
-              } else {
-                el.classList.add('drop-below');
-              }
-            }}
-            onDragLeave={(e) => {
-              const el = e.currentTarget as HTMLElement;
-              el.classList.remove('drag-over', 'drop-above', 'drop-below');
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              const el = e.currentTarget as HTMLElement;
-              const fromKey = e.dataTransfer?.getData('text/plain');
-              if (!fromKey) return;
-              // If hovering on top half -> insert before this item (idx), else insert after (idx + 1)
-              const insertBefore = el.classList.contains('drop-above');
-              const targetIndex = insertBefore ? idx : idx + 1;
-              el.classList.remove('drag-over', 'drop-above', 'drop-below');
-              onReorder && onReorder(fromKey, targetIndex);
-            }}
-          >
-            <div
-              className="sidebar-link"
-              onClick={() => {
-                if (item.key === 'dashboard') {
-                  onAddPage && onAddPage();
-                } else {
-                  onNavigate(item.key);
-                }
-              }}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="sidebar-link-left">
-                {item.key === 'dashboard' ? (
-                  <div className="home-replace">
-                    <button
-                      className="home-add-icon"
-                      title="New analysis"
-                      onClick={(e) => { e.stopPropagation(); onAddPage && onAddPage(); }}
-                    >
-                      +
-                    </button>
-                    <span className="new-bubble">NEW ANALYSIS</span>
-                  </div>
-                ) : (
-                  <>
-                    <FaFolderOpen /> <span className="sidebar-label">{item.label}</span>
-                  </>
-                )}
-              </div>
-              {/* action: three dots - visible on hover or when active; don't show for dashboard */}
-              {item.key !== 'dashboard' && (
-                <div className="sidebar-actions-wrap">
-                  <button
-                    className="item-actions"
-                    title="More"
-                    onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === item.key ? null : item.key); }}
-                  >
-                    &#8230;
-                  </button>
+      <nav className="sidebar-nav">
+        <DragDropContext onDragEnd={(result: DropResult) => {
+          const { source, destination } = result;
+          if (!destination) return;
+          const others = pages.filter(p => p.key !== 'dashboard');
+          const fromKey = others[source.index].key;
+          const toIndex = destination.index;
+          onReorder && onReorder(fromKey, toIndex);
+        }}>
+          <Droppable droppableId="sidebar-pages">
+            {(provided) => (
+              <div ref={provided.innerRef} {...provided.droppableProps}>
+                {pages.filter(p => p.key !== 'dashboard').map((item, idx) => (
+                  <Draggable key={item.key} draggableId={item.key} index={idx}>
+                    {(providedDraggable, snapshot) => (
+                      <div
+                        ref={providedDraggable.innerRef}
+                        {...providedDraggable.draggableProps}
+                        {...providedDraggable.dragHandleProps}
+                        className={`sidebar-item${(active === item.key || openMenu === item.key) ? " active" : ""} ${snapshot.isDragging ? 'dragging' : ''}`}
+                      >
+                          <button
+                          className="sidebar-link sidebar-link-button"
+                          aria-label={`Open ${item.label}`}
+                          onClick={() => {
+                            if (item.key === 'dashboard') {
+                              onAddPage && onAddPage();
+                            } else {
+                              onNavigate(item.key);
+                            }
+                          }}
+                        >
+                          <div className="sidebar-link-left">
+                              {item.key === 'dashboard' ? (
+                              <span className="home-replace-inline"><span className="home-add-icon" aria-hidden>+</span><span className="new-bubble">NEW ANALYSIS</span></span>
+                            ) : (
+                              <>
+                                {/* show user-selected icon (emoji) if present, otherwise fallback to folder svg */}
+                                {item.icon ? (
+                                        <span className="sidebar-item-icon" aria-hidden>{item.icon}</span>
+                                      ) : (
+                                        <span className="sidebar-item-icon folder-emoji" aria-hidden>📁</span>
+                                      )}
+                                <span className="sidebar-label">{item.label}</span>
+                              </>
+                            )}
+                          </div>
+                          {/* action: three dots - visible on hover or when active; don't show for dashboard */}
+                          {item.key !== 'dashboard' && (
+                            <div className="sidebar-actions-wrap">
+                              <button
+                                className="item-actions"
+                                title="More"
+                                onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === item.key ? null : item.key); }}
+                              >
+                                &#8230;
+                              </button>
 
-                  {openMenu === item.key && (
-                    <div className="item-menu" onClick={(e) => e.stopPropagation()}>
-                      <button className="item-menu-btn" onClick={() => { onRenamePage && onRenamePage(item.key); setOpenMenu(null); }}>Rename</button>
-                      <button className="item-menu-btn danger" onClick={() => { onDeletePage && onDeletePage(item.key); setOpenMenu(null); }}>Delete</button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
+                              {openMenu === item.key && (
+                                <div className="item-menu" onClick={(e) => e.stopPropagation()}>
+                                  <button className="item-menu-btn" onClick={() => { onRenamePage && onRenamePage(item.key); setOpenMenu(null); }}>Rename</button>
+                                  <button className="item-menu-btn danger" onClick={() => { onDeletePage && onDeletePage(item.key); setOpenMenu(null); }}>Delete</button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
+              </div>
+            )}
+          </Droppable>
+        </DragDropContext>
       </nav>
   <input className="sidebar-search" placeholder="Search for..." />
+
+  {/* footer: profile left, settings right (under the search) */}
+  <div className="sidebar-footer">
+    <div className="profile-container">
+  <button className="profile-btn" title="Profile" aria-label="Profile" onClick={() => setProfileOpen(p => !p)} aria-haspopup="dialog">
+        <span aria-hidden>👤</span>
+        <span className="visually-hidden">Open profile</span>
+      </button>
+      <ProfilePopup open={profileOpen} onClose={() => setProfileOpen(false)} user={{ name: 'Guest User', email: 'guest@example.com', plan: 'Guest' }} />
+    </div>
+    <button className="settings-btn" title="Settings" aria-label="Settings">
+      <span aria-hidden>⚙️</span>
+    </button>
+  </div>
     </aside>
   );
 };

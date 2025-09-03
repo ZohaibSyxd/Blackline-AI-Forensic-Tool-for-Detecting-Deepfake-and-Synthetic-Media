@@ -12,7 +12,6 @@ const FileAnalysis: React.FC<{ label: string; onNavigate?: (p: string) => void; 
         <div className="file-analysis-inner">
           <div className="file-analysis-content">
             <UploadCard />
-            <div className="file-analysis-caption">{label}</div>
           </div>
         </div>
       </div>

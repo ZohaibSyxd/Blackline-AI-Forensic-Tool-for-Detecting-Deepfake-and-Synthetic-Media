@@ -115,6 +115,31 @@
   outline: none;
   margin-top: auto; /* push to bottom */
 }
+
+/* footer under the search: profile left, settings right */
+.sidebar-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px 18px 16px;
+}
+.profile-btn, .settings-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+}
+.profile-btn:hover, .settings-btn:hover { background: #f3f4f6; }
+.profile-btn svg, .settings-btn svg { width: 28px; height: 28px; color: #111827 }
+.profile-container { position: relative; }
+.visually-hidden { position: absolute !important; height: 1px; width: 1px; overflow: hidden; clip: rect(1px, 1px, 1px, 1px); white-space: nowrap; }
+
+/* NEW ANALYSIS button variant used in header and inline */
+.home-replace-button { display:flex; align-items:center; gap:8px; padding:8px 12px; margin:8px auto; width:calc(100% - 40px); max-width: calc(var(--sidebar-width, 280px) - 40px); border-radius:10px; background:#fff; border:1px solid #eef0f6; cursor:pointer; }
+.home-replace-button .home-add-icon { width:34px; height:34px; border-radius:8px; background:#fff; display:inline-flex; align-items:center; justify-content:center; font-weight:700; }
+.home-replace-inline { display:inline-flex; align-items:center; gap:8px; }
+.home-replace-inline .home-add-icon { width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; }
 .sidebar-item {
   display: block;
   position: relative; /* ensure pseudo-elements (insertion line) are positioned inside each item */
@@ -265,6 +290,16 @@
   font-size: 18px;
   color: #111827;
   flex: 0 0 18px; /* don't allow the icon to shrink */
+}
+
+.sidebar-item-icon {
+  font-size: 16px;
+  margin-right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
 }
 
 .sidebar-link-left { min-width: 0; }
