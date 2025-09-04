@@ -85,7 +85,10 @@ def load_meta(meta_path: str) -> dict[str, str]:
     return mapping
 
 def load_probe_summary(probe_path: str) -> dict[str, dict]:
-    """Load probe.jsonl into mapping by sha256 -> summary fields."""
+    """Load probe.jsonl into mapping by sha256 -> summary fields.
+
+    Also carry through asset_id if present (keyed by sha256 for now).
+    """
     if not probe_path:
         return {}
     p = Path(probe_path)
@@ -103,6 +106,7 @@ def load_probe_summary(probe_path: str) -> dict[str, dict]:
                 continue
             summ = rec.get("summary") or {}
             out[sha] = {
+                "asset_id": rec.get("asset_id"),
                 "width": summ.get("width"),
                 "height": summ.get("height"),
                 "fps": summ.get("fps"),
@@ -130,6 +134,7 @@ def load_validate_summary(validate_path: str) -> dict[str, dict]:
             if not sha:
                 continue
             out[sha] = {
+                "asset_id": rec.get("asset_id"),
                 "format_valid": rec.get("format_valid"),
                 "decode_valid": rec.get("decode_valid"),
                 "val_width": rec.get("width"),
@@ -171,10 +176,13 @@ def main():
             sha = rec.get("sha256")
             ps = probe_map.get(sha, {})
             vs = val_map.get(sha, {})
+            asset_id = ps.get("asset_id") or vs.get("asset_id") or rec.get("asset_id")
             rows.append({
+                "asset_id": asset_id,
                 "sha256": sha,
                 "split": infer_split_from_paths(rec),
                 "stored_path": rec["stored_path"],
+                "store_root": rec.get("store_root"),
                 "orig_name": orig_name,
                 "size_bytes": rec.get("size_bytes"),
                 "mime": rec.get("mime"),

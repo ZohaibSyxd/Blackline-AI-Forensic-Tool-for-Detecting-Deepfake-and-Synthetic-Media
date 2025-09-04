@@ -18,7 +18,11 @@ from typing import Any, Dict, Generator, List, Optional
 
 
 def read_unique_assets(audit_path: Path) -> Generator[Dict[str, Any], None, None]:
-    """Yield one record per stored_path from the audit log (deduplicated)."""
+    """Yield one record per stored_path from the audit log (deduplicated).
+
+    Records newer than this change include redacted relative paths and an
+    asset_id. For older logs, we pass through fields as-is.
+    """
     seen: set[str] = set()
     with open(audit_path, encoding="utf-8") as r:
         for line in r:

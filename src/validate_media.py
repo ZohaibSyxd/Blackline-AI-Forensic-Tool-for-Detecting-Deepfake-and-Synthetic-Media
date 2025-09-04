@@ -11,13 +11,17 @@ Outputs one JSON per asset with fields like:
   sha256, stored_path, mime, media_kind, format_valid, decode_valid, width, height, duration_s, errors[]
 """
 
-import argparse, json, time
+import argparse, json, time, shutil
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-from utils import read_unique_assets, ffprobe_json, ffmpeg_decode_ok
+from utils import read_unique_assets, ffprobe_json, ffmpeg_decode_ok, run_command
 
 def classify_kind(mime: Optional[str], path: Path) -> str:
+    """Classify media kind from MIME or extension. Images are marked unsupported.
+
+    This pipeline is video-only; images/other kinds will be flagged accordingly.
+    """
     m = (mime or "").lower()
     if m.startswith("image/"):
         return "image"  # will be treated as unsupported below
@@ -32,6 +36,7 @@ def classify_kind(mime: Optional[str], path: Path) -> str:
     return "other"
 
 def summarize_probe(probe: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Summarize key ffprobe fields used for validation and reporting."""
     out = {"width": None, "height": None, "duration_s": None, "video_streams": 0, "audio_streams": 0}
     if not probe:
         return out
@@ -52,26 +57,6 @@ def summarize_probe(probe: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         out["height"] = v0.get("height")
     return out
 
-def pillow_verify(path: Path) -> Dict[str, Any]:
-    res = {"format_valid": None, "width": None, "height": None, "error": None}
-    try:
-        from PIL import Image  # type: ignore
-    except Exception as e:
-        res["format_valid"] = None
-        res["error"] = f"pillow_missing: {e}"
-        return res
-    try:
-        with Image.open(path) as im:
-            im.verify()  # quick integrity check
-        # reopen to get dimensions after verify()
-        with Image.open(path) as im2:
-            res["width"], res["height"] = im2.size
-        res["format_valid"] = True
-    except Exception as e:
-        res["format_valid"] = False
-        res["error"] = str(e)
-    return res
-
 
 def main():
     ap = argparse.ArgumentParser(description="Validate media containers/codecs and safe decode")
@@ -88,11 +73,12 @@ def main():
     ffmpeg_ver = None
     pillow_ver = None
 
+    # Capture tool versions for traceability in outputs
     if shutil.which("ffprobe"):
-        p = _run(["ffprobe", "-version"])
+        p = run_command(["ffprobe", "-version"])
         ffprobe_ver = (p.stdout or p.stderr).splitlines()[0] if (p.stdout or p.stderr) else None
     if shutil.which("ffmpeg"):
-        p = _run(["ffmpeg", "-version"])
+        p = run_command(["ffmpeg", "-version"])
         ffmpeg_ver = (p.stdout or p.stderr).splitlines()[0] if (p.stdout or p.stderr) else None
     try:
         import PIL  # type: ignore
@@ -102,13 +88,18 @@ def main():
 
     count = 0
     with open(out_path, "w", encoding="utf-8") as w:
+        # Iterate unique assets from ingest audit log
         for rec in read_unique_assets(Path(args.audit)):
-            path = Path(rec["stored_path"])
+            store_root = rec.get("store_root")
+            path = Path(store_root, rec["stored_path"]) if store_root else Path(rec["stored_path"]) 
             mime = rec.get("mime")
             if not path.exists():
+                # Record missing files explicitly to keep audit trail complete
                 row = {
+                    "asset_id": rec.get("asset_id"),
                     "sha256": rec.get("sha256"),
-                    "stored_path": str(path),
+                    "stored_path": rec.get("stored_path"),
+                    "store_root": store_root,
                     "mime": mime,
                     "media_kind": None,
                     "format_valid": False,
@@ -137,6 +128,7 @@ def main():
                 decode_valid = None
                 errors.append("unsupported_kind:image")
             elif kind == "video":
+                # Probe container/streams and attempt a dry-run decode to surface corruption
                 probe = ffprobe_json(path)
                 summ = summarize_probe(probe)
                 width, height = summ.get("width"), summ.get("height")
@@ -156,9 +148,12 @@ def main():
                 format_valid = False
                 errors.append("unsupported_kind")
 
+            # Emit one JSONL row per asset with validation results
             row = {
+                "asset_id": rec.get("asset_id"),
                 "sha256": rec.get("sha256"),
-                "stored_path": str(path),
+                "stored_path": rec.get("stored_path"),
+                "store_root": store_root,
                 "mime": mime,
                 "media_kind": kind,
                 "format_valid": format_valid,
@@ -173,6 +168,7 @@ def main():
             w.write(json.dumps(row) + "\n")
             count += 1
             print(f"[validate] {path.name} kind={kind} format={format_valid} decode={decode_valid}")
+            # Support quick smoke tests by honoring --limit
             if args.limit and count >= args.limit:
                 break
 

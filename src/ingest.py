@@ -16,9 +16,11 @@ Usage (PowerShell)
 Notes
 - Chain-of-custody: the audit log and content-addressed storage provide immutability and traceability.
 - Split inference is heuristic from path parts (train/test/val).
+- Paths in the audit log are redacted to avoid absolute user paths; we store
+  relative paths (to source/store) where possible.
 """
 
-import argparse, hashlib, json, os, shutil, sys, time, socket, getpass, mimetypes
+import argparse, hashlib, json, os, shutil, sys, time, socket, getpass, mimetypes, uuid
 from pathlib import Path
 
 # Allowed video file extensions (detection is for videos only)
@@ -104,13 +106,30 @@ def main():
 
         # Record size after move/copy (or original if duplicate)
         stat = (dest if dest.exists() else f).stat()  # size after move/copy, else original
+        # Redacted/relative representations for logging and audit
+        try:
+            src_rel = str(f.relative_to(src))
+        except ValueError:
+            src_rel = f.name
+        try:
+            stored_rel = str(dest.relative_to(store_root))
+        except ValueError:
+            stored_rel = dest.name
+        try:
+            store_root_rec = str(store_root.relative_to(Path.cwd()))
+        except Exception:
+            store_root_rec = str(store_root)
+        # Stable asset identifier (separate from content hash)
+        asset_id = str(uuid.uuid4())
         record = {
+            "asset_id": asset_id,
             "when": now_iso,
             "who": user,
             "host": host,
-            "src_path": str(f.resolve()),
-            "src_rel": str(f.relative_to(src)) if f.is_relative_to(src) else None,
-            "stored_path": str(dest.resolve()),
+            "src_path": src_rel,
+            "src_rel": src_rel,
+            "stored_path": stored_rel,
+            "store_root": store_root_rec,
             "sha256": sha,
             "split": detect_split(src, f),
             "size_bytes": stat.st_size,
@@ -123,7 +142,7 @@ def main():
         with open(audit_path, "a", encoding="utf-8") as out:
             out.write(json.dumps(record) + "\n")
         kept += 1
-        print(f"[{action}] {f}  ->  {dest}  ({sha[:12]}...)")
+        print(f"[{action}] {src_rel}  ->  {stored_rel}  ({sha[:12]}...)")
 
     print(f"\nDone. scanned={total} kept={kept} skipped={skipped}")
     print(f"audit log → {audit_path}")
