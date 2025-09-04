@@ -4,66 +4,39 @@ Format validation & safe decoding
 Usage (PowerShell):
   python .\src\validate_media.py --audit .\data\audit\ingest_log.jsonl --out .\data\derived\validate.jsonl
 
-Strategy
-- Images: open with Pillow and call .verify() (no output written).
+Strategy (videos only)
 - Videos: ffprobe to confirm streams; ffmpeg dry-run decode to catch corrupt samples.
 
 Outputs one JSON per asset with fields like:
   sha256, stored_path, mime, media_kind, format_valid, decode_valid, width, height, duration_s, errors[]
 """
 
-import argparse, json, shutil, subprocess, time
+import argparse, json, time, shutil
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-
-def read_unique_assets(audit_path: Path):
-    seen = set()
-    with open(audit_path, encoding="utf-8") as r:
-        for line in r:
-            rec = json.loads(line)
-            key = rec.get("stored_path")
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            yield rec
-
+from utils import read_unique_assets, ffprobe_json, ffmpeg_decode_ok, run_command
 
 def classify_kind(mime: Optional[str], path: Path) -> str:
+    """Classify media kind from MIME or extension. Images are marked unsupported.
+
+    This pipeline is video-only; images/other kinds will be flagged accordingly.
+    """
     m = (mime or "").lower()
     if m.startswith("image/"):
-        return "image"
+        return "image"  # will be treated as unsupported below
     if m.startswith("video/"):
         return "video"
     # fallback by extension
     ext = path.suffix.lower()
-    if ext in {".jpg",".jpeg",".png",".gif",".bmp",".tiff",".tif",".webp"}: # We dont want image
-        return "image"
+    if ext in {".jpg",".jpeg",".png",".gif",".bmp",".tiff",".tif",".webp"}:
+        return "image"  # will be treated as unsupported below
     if ext in {".mp4",".avi",".mov",".mkv",".webm",".m4v",".mpg",".mpeg"}:
         return "video"
     return "other"
 
-
-def _run(cmd: List[str]) -> subprocess.CompletedProcess:
-    try:
-        return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
-    except subprocess.CalledProcessError as e:
-        return e
-
-
-def ffprobe_json(path: Path) -> Optional[Dict[str, Any]]:
-    if shutil.which("ffprobe") is None:
-        return None
-    p = _run(["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)])
-    if p.returncode != 0:
-        return None
-    try:
-        return json.loads(p.stdout)
-    except Exception:
-        return None
-
-
 def summarize_probe(probe: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Summarize key ffprobe fields used for validation and reporting."""
     out = {"width": None, "height": None, "duration_s": None, "video_streams": 0, "audio_streams": 0}
     if not probe:
         return out
@@ -85,37 +58,6 @@ def summarize_probe(probe: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return out
 
 
-def ffmpeg_decode_ok(path: Path) -> Optional[bool]:
-    """Return True if a decode dry-run succeeds, False if ffmpeg reports errors, None if ffmpeg missing."""
-    if shutil.which("ffmpeg") is None:
-        return None
-    # -v error: only show errors; -xerror: exit on first error; -f null -: decode and discard output
-    # -nostdin: avoid blocking on stdin in some shells
-    p = _run(["ffmpeg", "-v", "error", "-xerror", "-nostdin", "-i", str(path), "-f", "null", "-"])
-    return p.returncode == 0
-
-
-def pillow_verify(path: Path) -> Dict[str, Any]:
-    res = {"format_valid": None, "width": None, "height": None, "error": None}
-    try:
-        from PIL import Image  # type: ignore
-    except Exception as e:
-        res["format_valid"] = None
-        res["error"] = f"pillow_missing: {e}"
-        return res
-    try:
-        with Image.open(path) as im:
-            im.verify()  # quick integrity check
-        # reopen to get dimensions after verify()
-        with Image.open(path) as im2:
-            res["width"], res["height"] = im2.size
-        res["format_valid"] = True
-    except Exception as e:
-        res["format_valid"] = False
-        res["error"] = str(e)
-    return res
-
-
 def main():
     ap = argparse.ArgumentParser(description="Validate media containers/codecs and safe decode")
     ap.add_argument("--audit", default="data/audit/ingest_log.jsonl", help="audit log path")
@@ -131,11 +73,12 @@ def main():
     ffmpeg_ver = None
     pillow_ver = None
 
+    # Capture tool versions for traceability in outputs
     if shutil.which("ffprobe"):
-        p = _run(["ffprobe", "-version"])
+        p = run_command(["ffprobe", "-version"])
         ffprobe_ver = (p.stdout or p.stderr).splitlines()[0] if (p.stdout or p.stderr) else None
     if shutil.which("ffmpeg"):
-        p = _run(["ffmpeg", "-version"])
+        p = run_command(["ffmpeg", "-version"])
         ffmpeg_ver = (p.stdout or p.stderr).splitlines()[0] if (p.stdout or p.stderr) else None
     try:
         import PIL  # type: ignore
@@ -145,13 +88,18 @@ def main():
 
     count = 0
     with open(out_path, "w", encoding="utf-8") as w:
+        # Iterate unique assets from ingest audit log
         for rec in read_unique_assets(Path(args.audit)):
-            path = Path(rec["stored_path"])
+            store_root = rec.get("store_root")
+            path = Path(store_root, rec["stored_path"]) if store_root else Path(rec["stored_path"]) 
             mime = rec.get("mime")
             if not path.exists():
+                # Record missing files explicitly to keep audit trail complete
                 row = {
+                    "asset_id": rec.get("asset_id"),
                     "sha256": rec.get("sha256"),
-                    "stored_path": str(path),
+                    "stored_path": rec.get("stored_path"),
+                    "store_root": store_root,
                     "mime": mime,
                     "media_kind": None,
                     "format_valid": False,
@@ -175,13 +123,12 @@ def main():
             decode_valid: Optional[bool] = None
 
             if kind == "image":
-                res = pillow_verify(path)
-                width, height = res.get("width"), res.get("height")
-                format_valid = res.get("format_valid")
-                if res.get("error"):
-                    errors.append(res["error"])  # include pillow error if any
-                # decode_valid not applicable for images
+                # For a video-only pipeline, images are not supported
+                format_valid = False
+                decode_valid = None
+                errors.append("unsupported_kind:image")
             elif kind == "video":
+                # Probe container/streams and attempt a dry-run decode to surface corruption
                 probe = ffprobe_json(path)
                 summ = summarize_probe(probe)
                 width, height = summ.get("width"), summ.get("height")
@@ -201,9 +148,12 @@ def main():
                 format_valid = False
                 errors.append("unsupported_kind")
 
+            # Emit one JSONL row per asset with validation results
             row = {
+                "asset_id": rec.get("asset_id"),
                 "sha256": rec.get("sha256"),
-                "stored_path": str(path),
+                "stored_path": rec.get("stored_path"),
+                "store_root": store_root,
                 "mime": mime,
                 "media_kind": kind,
                 "format_valid": format_valid,
@@ -218,6 +168,7 @@ def main():
             w.write(json.dumps(row) + "\n")
             count += 1
             print(f"[validate] {path.name} kind={kind} format={format_valid} decode={decode_valid}")
+            # Support quick smoke tests by honoring --limit
             if args.limit and count >= args.limit:
                 break
 
