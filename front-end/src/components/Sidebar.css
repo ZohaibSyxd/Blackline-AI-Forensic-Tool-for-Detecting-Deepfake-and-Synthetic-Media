@@ -434,3 +434,23 @@
 .sidebar-bulk-bar .bulk-actions { display:flex; gap:8px; }
 .sidebar-bulk-bar .item-menu-btn { background: transparent; border: none; cursor: pointer; padding: 6px 10px; border-radius:6px; }
 .sidebar-bulk-bar .item-menu-btn.danger { color: #b91c1c; }
+
+/* small grip next to actions for dragging rows */
+.action-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 28px;
+  margin-right: 6px;
+  cursor: grab;
+  color: #6b7280;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+.action-grip:active { cursor: grabbing; }
+
+/* drag handle (small grip to reorder rows) */
+

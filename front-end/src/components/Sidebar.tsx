@@ -140,7 +140,6 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
                           <div
                             ref={providedDraggable.innerRef}
                             {...providedDraggable.draggableProps}
-                            {...providedDraggable.dragHandleProps}
                             className={`sidebar-item${(active === item.key || openMenu === item.key) ? " active" : ""} ${snapshot.isDragging ? 'dragging' : ''}`}
                           >
                             <div className="sidebar-link-left">
@@ -197,6 +196,8 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
                             {/* action: three dots - visible on hover or when active; don't show for dashboard */}
                             {item.key !== 'dashboard' && (
                               <div className="sidebar-actions-wrap">
+                                {/* dedicated drag grip placed next to the action button - easier to hit */}
+                                <span className="action-grip" {...providedDraggable.dragHandleProps} title="Drag to reorder" aria-hidden>≡</span>
                                 <button
                                   className="item-actions"
                                   title="More"
