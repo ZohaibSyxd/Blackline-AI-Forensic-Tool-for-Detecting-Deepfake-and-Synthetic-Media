@@ -20,8 +20,8 @@ from utils import read_unique_assets, ffprobe_json, exiftool_json, summarize_ffp
 
 def main():
     ap = argparse.ArgumentParser(description="Probe media with ffprobe + exiftool, write JSONL")
-    ap.add_argument("--audit", default="data/audit/ingest_log.jsonl")
-    ap.add_argument("--out", default="data/derived/probe.jsonl")
+    ap.add_argument("--audit", default="backend/data/audit/ingest_log.jsonl")
+    ap.add_argument("--out", default="backend/data/derived/probe.jsonl")
     ap.add_argument("--limit", type=int, default=None, help="probe at most N assets")
     ap.add_argument("--no-exif", action="store_true", help="skip ExifTool probing for speed")
     args = ap.parse_args()

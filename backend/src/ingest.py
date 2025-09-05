@@ -65,8 +65,8 @@ def detect_split(src_root: Path, f: Path) -> str:
 def main():
     ap = argparse.ArgumentParser(description="Immutable ingest with SHA-256 + audit log")
     ap.add_argument("src", help="file or directory to ingest")
-    ap.add_argument("--store", default="data/raw", help="where to store raw files")
-    ap.add_argument("--audit", default="data/audit/ingest_log.jsonl", help="audit log path")
+    ap.add_argument("--store", default="backend/data/raw", help="where to store raw files")
+    ap.add_argument("--audit", default="backend/data/audit/ingest_log.jsonl", help="audit log path")
     ap.add_argument("--move", action="store_true", help="move files instead of copy (saves disk)")
     args = ap.parse_args()
 

@@ -60,8 +60,8 @@ def summarize_probe(probe: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 def main():
     ap = argparse.ArgumentParser(description="Validate media containers/codecs and safe decode")
-    ap.add_argument("--audit", default="data/audit/ingest_log.jsonl", help="audit log path")
-    ap.add_argument("--out", default="data/derived/validate.jsonl", help="output JSONL file")
+    ap.add_argument("--audit", default="backend/data/audit/ingest_log.jsonl", help="audit log path")
+    ap.add_argument("--out", default="backend/data/derived/validate.jsonl", help="output JSONL file")
     ap.add_argument("--limit", type=int, default=None, help="validate at most N assets")
     args = ap.parse_args()
 

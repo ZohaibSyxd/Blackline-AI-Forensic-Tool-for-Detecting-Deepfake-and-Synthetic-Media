@@ -145,11 +145,11 @@ def load_validate_summary(validate_path: str) -> dict[str, dict]:
 
 def main():
     ap = argparse.ArgumentParser(description="Build single manifest CSV (labels + probe/validate summaries if provided).")
-    ap.add_argument("--audit", default="data/audit/ingest_log.jsonl", help="audit log path")
-    ap.add_argument("--out", default="data/derived/manifest.csv", help="output CSV")
+    ap.add_argument("--audit", default="backend/data/audit/ingest_log.jsonl", help="audit log path")
+    ap.add_argument("--out", default="backend/data/derived/manifest.csv", help="output CSV")
     ap.add_argument("--meta", default=None, help="path to metadata.json with labels (optional)")
-    ap.add_argument("--probe", default="data/derived/probe.jsonl", help="path to probe.jsonl (optional)")
-    ap.add_argument("--validate", default="data/derived/validate.jsonl", help="path to validate.jsonl (optional)")
+    ap.add_argument("--probe", default="backend/data/derived/probe.jsonl", help="path to probe.jsonl (optional)")
+    ap.add_argument("--validate", default="backend/data/derived/validate.jsonl", help="path to validate.jsonl (optional)")
     args = ap.parse_args()
 
     Path(Path(args.out).parent).mkdir(parents=True, exist_ok=True)
