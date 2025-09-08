@@ -17,11 +17,14 @@ Notes
 - Chain-of-custody: the audit log and content-addressed storage provide immutability and traceability.
 """
 
-import argparse, hashlib, json, os, shutil, sys, time, getpass, uuid
+import argparse, hashlib, json, os, shutil, sys, time, getpass, uuid, mimetypes
 from pathlib import Path
 
 # Allowed video file extensions (detection is for videos only)
 ALLOWED_EXTS = {".mp4",".m4v",".avi",".mov",".mkv",".webm",".mpg",".mpeg"}
+
+# Simple tool version tag for traceability in downstream stages
+TOOL_VERSION = "ingest-2"
 
 def sha256sum(path, chunk_size=1024*1024):
     """Compute streaming SHA-256 of a file to avoid loading it entirely into memory."""
@@ -94,7 +97,27 @@ def main():
             "who": user,
             "sha256": sha,
             "action": action,
+            "tool_version": TOOL_VERSION,
+            "stored_path": f"{sha}/{dest.name}",
+            "store_root": str(store_root),
         }
+        # Add MIME type (best-effort)
+        mime, _ = mimetypes.guess_type(str(dest))
+        if not mime:
+            ext = dest.suffix.lower()
+            ext_map = {
+                ".mp4": "video/mp4",
+                ".m4v": "video/x-m4v",
+                ".webm": "video/webm",
+                ".mkv": "video/x-matroska",
+                ".mov": "video/quicktime",
+                ".avi": "video/x-msvideo",
+                ".mpg": "video/mpeg",
+                ".mpeg": "video/mpeg",
+            }
+            mime = ext_map.get(ext)
+        if mime:
+            record["mime"] = mime
         # Append to audit log (JSON Lines)
         with open(audit_path, "a", encoding="utf-8") as out:
             out.write(json.dumps(record) + "\n")
