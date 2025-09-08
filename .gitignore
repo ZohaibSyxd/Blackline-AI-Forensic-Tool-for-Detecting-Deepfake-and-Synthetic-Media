@@ -1,4 +1,4 @@
 # Data we don't want in Git
-/backend/data/raw/
+backend/data/raw/
 backend/datasets/train/
 backend/datasets/test/
