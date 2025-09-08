@@ -1,0 +1,40 @@
+.reports-page {
+  padding: 12px 8px;
+}
+
+.reports-page h2 {
+  margin: 0 0 6px 0;
+}
+
+.reports-page .muted {
+  color: #6b7280;
+  margin-bottom: 18px;
+}
+
+.heatmap {
+  width: 100%;
+  max-width: 960px;
+  background: #ffffff;
+  padding: 20px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(12,12,20,0.06);
+}
+
+.heatmap-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.heatcell {
+  width: 44px;
+  height: 28px;
+  border-radius: 4px;
+  background: #f3f4f6;
+}
+
+.heatcell.intensity-0 { background: #f3f4f6; }
+.heatcell.intensity-1 { background: #fde68a; }
+.heatcell.intensity-2 { background: #fca5a5; }
+.heatcell.intensity-3 { background: #fb7185; }
+.heatcell.intensity-4 { background: #ef4444; }

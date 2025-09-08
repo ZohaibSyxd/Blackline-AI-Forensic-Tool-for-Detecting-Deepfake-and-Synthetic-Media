@@ -1,0 +1,456 @@
+.sidebar {
+  width: var(--sidebar-width, 300px);
+  min-height: 100vh;
+  background: #fff;
+  border-right: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 0;
+  box-sizing: border-box;
+  min-width: 300px; /* enforce a lowest minimum width so logo doesn't get squished; matches JS min */
+  position: relative; /* allow absolute children like the resize handle to position correctly */
+}
+.sidebar-header {
+  font-weight: bold;
+  font-size: 1.1rem;
+  padding: 0 24px 16px 24px;
+}
+
+.sidebar-add {
+  padding: 0 24px 12px 24px;
+}
+
+.add-page-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  color: #1f2937;
+}
+.for-figma {
+  color: #888;
+  font-size: 0.8em;
+}
+.sidebar-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px 16px 24px;
+  position: relative; /* allow absolutely positioned actions */
+}
+
+/* Resize handle on the right edge of the sidebar */
+.sidebar-resize-handle {
+  position: absolute;
+  right: -6px; /* slightly overlap the main area so it's visible on the edge */
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  cursor: ew-resize;
+  z-index: 9999; /* ensure it's above other content */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(90deg, rgba(0,0,0,0.00), rgba(0,0,0,0.03));
+  transition: background 120ms ease;
+}
+.sidebar-resize-handle::before {
+  content: "";
+  width: 3px;
+  height: 40%;
+  background: #9ca3af; /* darker vertical bar for visibility */
+  border-radius: 3px;
+}
+.sidebar-resize-handle:hover {
+  background: linear-gradient(90deg, rgba(0,0,0,0.00), rgba(0,0,0,0.10));
+}
+.sidebar-icon {
+  color: #888;
+  cursor: pointer;
+}
+.sidebar-notification {
+  position: relative;
+  color: #888;
+}
+.badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #e53935;
+  color: #fff;
+  border-radius: 50%;
+  font-size: 0.7em;
+  padding: 2px 6px;
+}
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+.profile-left { display: flex; align-items: center; }
+.profile-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.profile-actions .add-page-btn { width: 34px; height: 34px; border-radius: 6px; }
+
+/* ensure add button sits at the right edge of the sidebar profile row */
+.sidebar-profile .add-page-btn {
+  position: absolute;
+  right: 12px; /* inner padding */
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* add-page-btn is positioned by the .profile-actions flex container (margin-left:auto) */
+  gap: 4px;
+  padding: 0 24px;
+  flex: 1 1 auto; /* allow nav to grow */
+}
+
+.sidebar-search {
+  margin: 16px 24px 24px 24px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  background: #f5f6fa;
+  outline: none;
+  margin-top: auto; /* push to bottom */
+}
+
+/* footer under the search: profile left, settings right */
+.sidebar-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px 18px 16px;
+}
+.profile-btn, .settings-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+}
+.profile-btn:hover, .settings-btn:hover { background: #f3f4f6; }
+.profile-btn svg, .settings-btn svg { width: 28px; height: 28px; color: #111827 }
+.profile-container { position: relative; }
+.visually-hidden { position: absolute !important; height: 1px; width: 1px; overflow: hidden; clip: rect(1px, 1px, 1px, 1px); white-space: nowrap; }
+
+/* NEW ANALYSIS button variant used in header and inline */
+.home-replace-button {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 12px;
+  /* place with fixed horizontal gutters and make the button width follow the sidebar width
+    so it remains identical at the sidebar min width (sidebar width minus gutters) */
+  margin: 8px 20px; /* keep horizontal gutters */
+  width: calc(var(--sidebar-width, 300px) - 40px);
+  /* min-width set to sidebar min (300px) minus horizontal gutters (40px) = 260px */
+  min-width: 260px; /* firm minimum width so button equals sidebar when at min width */
+  border-radius:10px;
+  background:#fff;
+  border:1px solid #eef0f6;
+  cursor:pointer;
+  flex: 0 0 auto; /* don't shrink */
+  box-sizing: border-box;
+  padding-right: 16px; /* smaller right reserve so label has more room */
+}
+.home-replace-button .home-add-icon { width:34px; height:34px; border-radius:8px; background:#fff; display:inline-flex; align-items:center; justify-content:center; font-weight:700; }
+.home-replace-inline { display:inline-flex; align-items:center; gap:8px; }
+.home-replace-inline .home-add-icon { width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; }
+.sidebar-item {
+  display: block;
+  position: relative; /* ensure pseudo-elements (insertion line) are positioned inside each item */
+}
+
+.sidebar-item {
+  /* make each row a horizontal flex container so actions sit to the right */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sidebar-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 0 8px; /* vertical padding removed in favor of fixed height */
+  height: 48px; /* fixed height to avoid jumps */
+  border-radius: 6px;
+  color: #222;
+  text-decoration: none;
+  font-weight: 500;
+  cursor: pointer;
+  flex: 0 1 auto; /* allow shrinking when necessary but let inner text truncate */
+
+}
+
+.sidebar-item.active .sidebar-link, .sidebar-link:hover {
+  background: #f5f6fa;
+}
+
+.sidebar-actions-wrap {
+  position: relative;
+  min-width: 44px; /* reserve space for the action button so layout doesn't shift */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px; /* match the row height so children can center perfectly */
+}
+
+.item-actions {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  width: 32px;
+  height: 32px;
+  display: flex; /* use full flexbox centering */
+  align-items: center;
+  justify-content: center;
+  padding: 0; /* remove any extra padding that shifts baseline */
+  line-height: 1; /* ensure glyph sits centered */
+  visibility: hidden; /* keep layout, but hidden by default */
+  opacity: 0;
+  transition: opacity 0.12s ease, visibility 0.12s;
+}
+
+.sidebar-item:hover .item-actions, .sidebar-item.active .item-actions {
+  visibility: visible;
+  opacity: 1;
+}
+
+.sidebar-actions-wrap {
+  position: relative;
+}
+
+.item-menu {
+  position: absolute;
+  right: 0;
+  top: 28px;
+  background: #fff;
+  border: 1px solid #e6e6e6;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(20,20,30,0.06);
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+  z-index: 30;
+}
+
+.item-menu-btn {
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.item-menu-btn.danger {
+  color: #b91c1c;
+}
+
+/* Highlight menu options on hover and show focus outline for keyboard users */
+.item-menu-btn {
+  width: 100%;
+  display: block;
+  border-radius: 6px;
+}
+.item-menu-btn:hover {
+  background: #f5f6fa;
+}
+.item-menu-btn:focus {
+  outline: 3px solid rgba(59,130,246,0.12);
+  outline-offset: 2px;
+}
+.item-menu-btn.danger:hover {
+  background: rgba(249, 231, 235, 0.6);
+}
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-radius: 6px;
+  color: #222;
+  text-decoration: none;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+/* Drag & drop visuals */
+.sidebar-item.dragging {
+  opacity: 0.6;
+}
+.sidebar-item.drop-above::after,
+.sidebar-item.drop-below::after {
+  content: "";
+  position: absolute;
+  /* align the insertion line with the text area (leave icon spacing) */
+  left: 44px; /* icon (18px) + gap + some padding */
+  right: 12px;
+  height: 2px;
+  background: #1f6feb;
+  border-radius: 2px;
+  box-shadow: 0 1px 0 rgba(31,111,235,0.18);
+  pointer-events: none;
+}
+.sidebar-item.drop-above::after {
+  top: 16px; /* slightly inside the item */
+}
+.sidebar-item.drop-below::after {
+  bottom: 16px;
+}
+
+/* place icon to the left of the label */
+.sidebar-link-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto; /* allow label area to take remaining space and shrink when needed */
+  min-width: 0; /* allow inner label to ellipsize */
+}
+.sidebar-link-left svg {
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  color: #111827;
+  flex: 0 0 18px; /* don't allow the icon to shrink */
+}
+
+.sidebar-item-icon {
+  font-size: 16px;
+  margin-right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+
+.sidebar-link-left { min-width: 0; }
+.sidebar-label {
+  display: inline-block;
+  flex: 1 1 auto; /* allow to grow/shrink inside the left container */
+  min-width: 0; /* allow the flex item to shrink below its content width */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Home replacement styles: a plus button and NEW ANALYSIS bubble */
+.home-replace {
+  display: flex;
+  align-items: center;
+  justify-content: center; /* keep contents centered */
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid #eef0f6;
+  background: #fff;
+  transition: background 0.15s, box-shadow 0.15s, transform 0.06s;
+  cursor: pointer;
+  box-sizing: border-box;
+  /* center the box and leave small horizontal gutters */
+  width: calc(100% - 40px);
+  margin: 8px auto;
+  max-width: calc(var(--sidebar-width, 300px) - 40px);
+  /* firm minimum so the compact appearance matches the design sample */
+  min-width: 260px;
+  flex: 0 0 auto;
+}
+.home-add-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  color: #1f2937;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.new-bubble {
+  background: #eef2ff;
+  flex: 0 1 auto;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  display: inline-block;
+}
+
+/* allow the NEW ANALYSIS label to truncate instead of pushing layout when the sidebar is at min width */
+.home-replace-button .new-bubble,
+.home-replace .new-bubble,
+.home-replace-inline .new-bubble {
+  display: inline-block;
+  max-width: calc(100% - 56px); /* leave room for the + icon and gutters */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 88px; /* ensure label keeps readable length */
+  flex: 0 0 auto; /* do not shrink further */
+}
+.home-label { color: #6b7280; margin-left: 6px; font-weight: 600; }
+.sidebar-link.active, .sidebar-link:hover {
+  background: #f5f6fa;
+}
+
+.sidebar-link-button {
+  background: none;
+  border: none;
+  width: auto; /* don't force full width so actions can live on the right */
+  text-align: left;
+  padding: 0;
+  flex: 1 1 auto; /* expand to fill available space between checkbox/icon and actions */
+  min-width: 0;
+}
+
+/* Bulk selection checkbox in each row */
+.sidebar-checkbox {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  flex: 0 0 auto;
+}
+
+/* Bulk action bar shown above the list when items are selected */
+.sidebar-bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  margin: 8px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e6eef8;
+}
+.sidebar-bulk-bar .bulk-info { font-weight: 600; color: #111827; }
+.sidebar-bulk-bar .bulk-actions { display:flex; gap:8px; }
+.sidebar-bulk-bar .item-menu-btn { background: transparent; border: none; cursor: pointer; padding: 6px 10px; border-radius:6px; }
+.sidebar-bulk-bar .item-menu-btn.danger { color: #b91c1c; }
+
+/* small grip next to actions for dragging rows */
+.action-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 28px;
+  margin-right: 6px;
+  cursor: grab;
+  color: #6b7280;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+.action-grip:active { cursor: grabbing; }
+
+/* drag handle (small grip to reorder rows) */
+
