@@ -35,7 +35,7 @@ const NewAnalysisModal: React.FC<Props> = ({ isOpen, defaultName = '', onClose, 
               key={ic}
               className={`nm-icon-btn ${icon === ic ? 'selected' : ''}`}
               onClick={() => setIcon(ic)}
-              aria-pressed={icon === ic}
+              aria-pressed={icon === ic ? true : false}
             >
               <span className="nm-emoji">{ic}</span>
             </button>
