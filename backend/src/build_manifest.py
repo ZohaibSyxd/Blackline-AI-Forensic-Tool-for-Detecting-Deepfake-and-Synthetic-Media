@@ -2,7 +2,8 @@
 src/build_manifest.py
 
 Build a single manifest CSV from the ingest audit log, merging optional labels
-from metadata.json and optional technical fields from probe/validate outputs.
+and splits from metadata.json and optional technical fields from
+probe/validate outputs.
 
 Usage (PowerShell)
         python .\src\build_manifest.py \
@@ -14,7 +15,7 @@ Usage (PowerShell)
 
 Notes
 - The audit log is JSONL written by ingest.py (one row per kept asset).
-- Labels are looked up by original filename (case-insensitive) if provided.
+- Labels and splits are looked up by original filename (case-insensitive) if provided.
 - If probe/validate JSONL files exist, we merge a compact summary of fields
     such as width/height/fps/codec/duration_s and format/decode flags.
 - For a video-only pipeline, ensure ingest filters non-video types; this script
@@ -36,6 +37,19 @@ def infer_split_from_paths(rec):
         if "/test/"  in p or "\\test\\"  in p: return "test"
         if any(x in p for x in ("/val/","\\val\\","validation")): return "val"
     return "unknown"
+
+def norm_split(s):
+    """Normalize split values to one of train/test/val/unknown."""
+    if s is None:
+        return ""
+    s = str(s).strip().lower()
+    if s in {"train","training"}:
+        return "train"
+    if s in {"test","testing"}:
+        return "test"
+    if s in {"val","valid","validn","validation","dev","devval"}:
+        return "val"
+    return s
 
 def norm_label(s):
     """Normalize label values as uppercase strings (REAL/FAKE) by default.
@@ -59,7 +73,7 @@ def label_to_num(label: str):
         return 0
     return ""
 
-def load_meta(meta_path: str) -> dict[str, str]:
+def load_meta(meta_path: str) -> dict[str, dict]:
     if not meta_path:
         return {}
     p = Path(meta_path)
@@ -67,19 +81,32 @@ def load_meta(meta_path: str) -> dict[str, str]:
         print(f"Meta not found: {p}")
         return {}
     data = json.load(open(p, encoding="utf-8"))
-    mapping = {}
+    mapping: dict[str, dict] = {}
     if isinstance(data, dict):
         for k, v in data.items():
-            lab = v.get("label") if isinstance(v, dict) else v
-            if lab is None:
+            if not isinstance(v, dict):
+                # Assume bare label value
+                mapping[Path(k).name.lower()] = {
+                    "label": norm_label(v),
+                    "split": "",
+                }
                 continue
-            mapping[Path(k).name.lower()] = norm_label(lab)
+            lab = v.get("label")
+            spl = v.get("split")
+            mapping[Path(k).name.lower()] = {
+                "label": norm_label(lab),
+                "split": norm_split(spl),
+            }
     elif isinstance(data, list):
         for row in data:
             fn = row.get("filename") or row.get("file") or row.get("name")
             lab = row.get("label")
-            if fn and lab:
-                mapping[Path(fn).name.lower()] = norm_label(lab)
+            spl = row.get("split")
+            if fn:
+                mapping[Path(fn).name.lower()] = {
+                    "label": norm_label(lab),
+                    "split": norm_split(spl),
+                }
     else:
         print("Unrecognized metadata.json shape; skipping labels.")
     return mapping
@@ -153,7 +180,7 @@ def main():
     args = ap.parse_args()
 
     Path(Path(args.out).parent).mkdir(parents=True, exist_ok=True)
-    label_map = load_meta(args.meta) if args.meta else {}
+    meta_map = load_meta(args.meta) if args.meta else {}
     probe_map = load_probe_summary(args.probe) if args.probe else {}
     val_map = load_validate_summary(args.validate) if args.validate else {}
 
@@ -169,9 +196,12 @@ def main():
                 continue
             seen.add(key)
             orig_name = Path(rec["stored_path"]).name
-            lab = label_map.get(orig_name.lower(), "")
+            meta = meta_map.get(orig_name.lower(), {})
+            lab = meta.get("label", "") if isinstance(meta, dict) else str(meta)
             if lab:
                 label_hits += 1
+            split = meta.get("split") if isinstance(meta, dict) else ""
+            split = split or infer_split_from_paths(rec)
             # lookups by sha256 for probe/validate summaries
             sha = rec.get("sha256")
             ps = probe_map.get(sha, {})
@@ -180,7 +210,7 @@ def main():
             rows.append({
                 "asset_id": asset_id,
                 "sha256": sha,
-                "split": infer_split_from_paths(rec),
+                "split": split,
                 "stored_path": rec["stored_path"],
                 "store_root": rec.get("store_root"),
                 "orig_name": orig_name,

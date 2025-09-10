@@ -18,24 +18,59 @@ from typing import Any, Dict, Generator, List, Optional
 
 
 def read_unique_assets(audit_path: Path) -> Generator[Dict[str, Any], None, None]:
-    """Yield one record per stored_path from the audit log (deduplicated).
+    """Yield one record per asset from the audit log (deduplicated).
 
-    Records newer than this change include redacted relative paths and an
-    asset_id. For older logs, we pass through fields as-is.
+    Backwards/forwards compatibility:
+    - If records already contain `stored_path` (and optional `store_root`/`mime`),
+      pass them through as-is.
+    - If simplified records only contain `sha256` (no `stored_path`), reconstruct
+      `stored_path` by inspecting the content-addressed store under
+      `<data_root>/raw/<sha256>/<filename>`, where `data_root` is inferred from the
+      audit path (".../data/audit/ingest_log.jsonl" → data root ".../data").
     """
     seen: set[str] = set()
+    data_root = audit_path.parent.parent  # .../data
+    default_store_root = str(data_root / "raw")
     with open(audit_path, encoding="utf-8") as r:
         for line in r:
             if not line.strip():
                 continue
             try:
-                rec = json.loads(line)
+                rec: Dict[str, Any] = json.loads(line)
             except Exception:
                 continue
-            key = rec.get("stored_path")
-            if not key or key in seen:
+
+            stored_path = rec.get("stored_path")
+            store_root = rec.get("store_root")
+
+            if not stored_path:
+                sha = rec.get("sha256")
+                if not sha:
+                    continue
+                # Infer store root from audit path if not present in record
+                store_root = store_root or default_store_root
+                sha_dir = Path(store_root) / sha
+                filename = None
+                try:
+                    for child in sha_dir.iterdir():
+                        if child.is_file():
+                            filename = child.name
+                            break
+                except Exception:
+                    filename = None
+                if filename is None:
+                    # Fall back to a placeholder to keep the record traceable; downstream
+                    # validators will mark it as missing if it doesn't exist.
+                    filename = sha
+                stored_path = f"{sha}/{filename}"
+                rec["stored_path"] = stored_path
+                rec["store_root"] = store_root
+
+            # Use stored_path if present; otherwise dedupe by sha256
+            dedupe_key = stored_path or rec.get("sha256")
+            if not dedupe_key or dedupe_key in seen:
                 continue
-            seen.add(key)
+            seen.add(dedupe_key)
             yield rec
 
 
