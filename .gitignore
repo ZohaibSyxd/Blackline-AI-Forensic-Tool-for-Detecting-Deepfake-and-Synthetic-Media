@@ -2,3 +2,14 @@
 backend/data/raw/
 backend/datasets/train/
 backend/datasets/test/
+
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.vscode/
+.env
+.idea/
+.ipynb_checkpoints
+logs/
+*.log

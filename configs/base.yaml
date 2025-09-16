@@ -1,0 +1,30 @@
+paths:
+  inbox: "data/inbox"
+  raw: "data/raw"
+  frames: "data/frames"
+  processed: "data/processed"
+  features: "data/features"
+  exif: "metadata/exif"
+  video_info: "metadata/video_info"
+  dataset_parquet: "metadata/dataset.parquet"
+  frames_parquet_root: "analytics/frames"
+
+intake:
+  hash_algorithms: ["sha256", "md5"]
+  move_after_ingest: true
+
+video:
+  fps: 8
+  shot_detect: false     # enable later
+  max_frames: 0
+
+image:
+  target_size: 640
+  keep_aspect: true
+  normalize: true
+
+features:
+  ela: true
+  noise_residual: true
+  lbp: true
+  copymove: false        # turn on later

@@ -1,0 +1,12 @@
+opencv-python
+scikit-image
+imagehash
+numpy
+pandas
+pyarrow
+fastparquet
+tqdm
+rich
+mediapipe
+facenet-pytorch
+scenedetect
