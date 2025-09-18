@@ -15,7 +15,7 @@ import argparse, json, time, shutil
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-from utils import read_unique_assets, ffprobe_json, ffmpeg_decode_ok, run_command
+from .utils import read_unique_assets, ffprobe_json, ffmpeg_decode_ok, run_command
 
 def classify_kind(mime: Optional[str], path: Path) -> str:
     """Classify media kind from MIME or extension. Images are marked unsupported.
@@ -56,6 +56,86 @@ def summarize_probe(probe: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         out["width"] = v0.get("width")
         out["height"] = v0.get("height")
     return out
+
+
+def validate_asset(stored_path: str, store_root: str | None, sha256: str, mime: str | None) -> Dict[str, Any]:
+    """Validate a single asset (already ingested). Returns validation row dict.
+    Does not write files.
+    """
+    path = Path(store_root, stored_path) if store_root else Path(stored_path)
+    tstart = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    ffprobe_ver = None
+    ffmpeg_ver = None
+    if shutil.which("ffprobe"):
+        p = run_command(["ffprobe", "-version"])
+        ffprobe_ver = (p.stdout or p.stderr).splitlines()[0] if (p.stdout or p.stderr) else None
+    if shutil.which("ffmpeg"):
+        p = run_command(["ffmpeg", "-version"])
+        ffmpeg_ver = (p.stdout or p.stderr).splitlines()[0] if (p.stdout or p.stderr) else None
+
+    if not path.exists():
+        return {
+            "asset_id": None,
+            "sha256": sha256,
+            "stored_path": stored_path,
+            "store_root": store_root,
+            "mime": mime,
+            "media_kind": None,
+            "format_valid": False,
+            "decode_valid": None,
+            "width": None,
+            "height": None,
+            "duration_s": None,
+            "errors": ["file_missing"],
+            "when": tstart,
+            "tool_versions": {"ffprobe": ffprobe_ver, "ffmpeg": ffmpeg_ver},
+        }
+
+    kind = classify_kind(mime, path)
+    errors: List[str] = []
+    width = height = None
+    duration_s = None
+    format_valid: Optional[bool] = None
+    decode_valid: Optional[bool] = None
+
+    if kind == "image":
+        format_valid = False
+        decode_valid = None
+        errors.append("unsupported_kind:image")
+    elif kind == "video":
+        probe = ffprobe_json(path)
+        summ = summarize_probe(probe)
+        width, height = summ.get("width"), summ.get("height")
+        duration_s = summ.get("duration_s")
+        has_streams = (summ.get("video_streams") or 0) + (summ.get("audio_streams") or 0) > 0
+        format_valid = True if (probe and has_streams) else False
+        if probe is None and shutil.which("ffprobe") is None:
+            errors.append("ffprobe_missing")
+        decode_valid = ffmpeg_decode_ok(path)
+        if decode_valid is None and shutil.which("ffmpeg") is None:
+            errors.append("ffmpeg_missing")
+        if decode_valid is False:
+            errors.append("decode_failed")
+    else:
+        format_valid = False
+        errors.append("unsupported_kind")
+
+    return {
+        "asset_id": None,
+        "sha256": sha256,
+        "stored_path": stored_path,
+        "store_root": store_root,
+        "mime": mime,
+        "media_kind": kind,
+        "format_valid": format_valid,
+        "decode_valid": decode_valid,
+        "width": width,
+        "height": height,
+        "duration_s": duration_s,
+        "errors": errors,
+        "when": tstart,
+        "tool_versions": {"ffprobe": ffprobe_ver, "ffmpeg": ffmpeg_ver},
+    }
 
 
 def main():
@@ -104,6 +184,9 @@ def main():
                     "media_kind": None,
                     "format_valid": False,
                     "decode_valid": None,
+                    "width": None,
+                    "height": None,
+                    "duration_s": None,
                     "errors": ["file_missing"],
                     "when": tstart,
                     "tool_versions": {"ffprobe": ffprobe_ver, "ffmpeg": ffmpeg_ver, "pillow": pillow_ver},
