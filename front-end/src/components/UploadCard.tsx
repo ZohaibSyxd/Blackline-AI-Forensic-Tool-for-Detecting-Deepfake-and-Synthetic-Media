@@ -107,7 +107,7 @@ const UploadCard: React.FC = () => {
 
         {file ? (
           <div className="upload-preview">
-            {preview ? <img src={preview} alt={file.name} /> : <div className="file-icon">📄</div>}
+            {preview ? <img src={preview} alt={file.name} /> : null}
             <div className="file-meta">
               <div className="file-name">{file.name}</div>
               <div className="file-actions">
