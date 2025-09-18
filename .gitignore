@@ -2,8 +2,11 @@
 backend/data/raw/
 backend/datasets/train/
 backend/datasets/test/
+backend/data/derived/frames/
+backend/data/derived/overlays/ela/
 data/audit/
 data/derived/
+
 
 .venv/
 __pycache__/

@@ -1,0 +1,55 @@
+[33me502147[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m Add Error Level Analysis (ELA) functionality for frame processing
+[33m328de5b[m update readme v3
+[33m23e44bc[m updated readme
+[33m817de4b[m Updated readme
+[33m6f7657f[m Clean repo: remove unused files and add Step 4 implementation
+[33m390db60[m Recomitting Missing Data
+[33m0973aa1[m Reverting back to working Version
+[33m16b9f19[m Merge branch 'nskog-frontend-branch'
+[33m688630b[m Merge branch 'main' of https://github.com/ZohaibSyxd/Blackline-AI-Forensic-Tool-for-Detecting-Deepfake-and-Synthetic-Media
+[33m60dd8ab[m[33m ([m[1;31morigin/nskog-frontend-branch[m[33m)[m Updated ready for merge
+[33m844d2b2[m Update README and enhance data logging with new asset entries; refactor manifest building and ingestion processes for improved consistency and clarity.
+[33m6ab6c5f[m Committing accidentally deleted files
+[33ma29d421[m Merge branch 'nskog-frontend-branch'
+[33m3519c02[m Refactor ingest script to simplify logging and remove unused functions; temporarily delete front end folder to allow for merge.
+[33m63d24f1[m Deleted back-end
+[33m4b4cccf[m update gitignote again
+[33mb854f5d[m update gitignore
+[33m9075da6[m Refactor data paths and update scripts for backend consistency; removed requirements file and adjusted .gitignore for new dataset structure.
+[33m8096680[m Merge branch 'backend'
+[33m72940ea[m Pushing final demo
+[33m58e3094[m Update readme again
+[33m6c9239f[m Added bulk delete
+[33mad20a61[m Proper width for sidebar
+[33m52a4313[m Finished demo (needing a few changes and minor tweaks)
+[33mbaeddc6[m Modified reordering
+[33m6f1362e[m Update readme
+[33m1f12230[m Refactor code, added utils.py
+[33mbcc9287[m Fixing changes
+[33m991bcce[m Making huge changes and implementing the dashboard feature
+[33me037761[m Finish merge
+[33m3d7227e[m Minimal Project Structure implementation
+[33mb2c9890[m Implemented sidebar
+[33mcc32f01[m Committing basic skeleton
+[33m7e9026d[m Implemented front end development skeleton
+[33ma75f40c[m deleted frontend folder
+[33ma921c74[m enhance documentation and improve code clarity across multiple scripts
+[33m24a12cf[m backend testing 2
+[33ma5b4cce[m creating a new change
+[33m2904b24[m testing
+[33m0245cc0[m testing
+[33mf87eb76[m Merge branch 'main' of https://github.com/ZohaibSyxd/Blackline-AI-Forensic-Tool-for-Detecting-Deepfake-and-Synthetic-Media
+[33m485a836[m add validation script
+[33m8c1cd7f[m Added hello
+[33m8cd55a1[m Created front-end basic folder
+[33mdc5d6cd[m add media probing script using ffprobe and exiftool, created raw json output
+[33mb02a289[m remove attach_labels.py and enhance build_manifest.py with metadata integration
+[33m05033a1[m add .gitignore to exclude raw data and dataset directories
+[33ma73ed78[m add metadata handling and labeling script
+[33m7edc628[m add data folder, manifest csv and ingest log
+[33m68824de[m add sample submission CSV file with video filenames and labels & rename file names
+[33m41ade68[m fix ingest and manifest file bug
+[33mec5c0dd[m implement ingest pipeline with SHA256 hashing, audit logs, and manifest
+[33mfa21f6d[m repo structure
+[33m5ffdf4e[m first commit
+[33m7574ff4[m first commit

@@ -10,3 +10,4 @@ rich
 mediapipe
 facenet-pytorch
 scenedetect
+Pillow
