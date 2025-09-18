@@ -1,0 +1,74 @@
+# Backend pipeline (Windows PowerShell) — copy/paste ready
+
+# 0) Activate venv (if not already)
+# python -m venv .venv
+# .\.venv\Scripts\Activate.ps1
+# pip install -r documentation/requirements.txt
+
+# 1) Ingest
+python .\backend\src\ingest.py .\backend\datasets --store .\backend\data\raw
+
+# 2) Probe container/streams (ffprobe) + EXIF (optional)
+# Add --no-exif for speed if needed
+python .\backend\src\probe_media.py `
+  --audit .\backend\data\audit\ingest_log.jsonl `
+  --out   .\backend\data\derived\probe.jsonl
+
+# 3) Validate format & safe decode
+python .\backend\src\validate_media.py `
+  --audit .\backend\data\audit\ingest_log.jsonl `
+  --out   .\backend\data\derived\validate.jsonl
+
+# 4) Scene/shot detection → shots.jsonl
+# threshold: 0.30–0.50 typical; min-shot-ms merges very short shots
+python .\backend\src\scene_detect.py `
+  --audit .\backend\data\audit\ingest_log.jsonl `
+  --out   .\backend\data\derived\shots.jsonl `
+  --threshold 0.30 `
+  --min-shot-ms 400
+
+# 5) Per-shot frame sampling (frames.jsonl + JPEGs)
+# Frames only
+python .\backend\src\sample_frames.py `
+  --shots       .\backend\data\derived\shots.jsonl `
+  --frames-out  .\backend\data\derived\frames.jsonl `
+  --frames-root .\backend\data\derived\frames `
+  --fps 8 `
+  --jpeg-quality 90
+
+# (Optional) Also extract clips per shot
+python .\backend\src\sample_frames.py `
+  --shots       .\backend\data\derived\shots.jsonl `
+  --frames-out  .\backend\data\derived\frames.jsonl `
+  --frames-root .\backend\data\derived\frames `
+  --fps 8 `
+  --jpeg-quality 90 `
+  --extract-clips `
+  --clips-root .\backend\data\derived\clips
+
+# 6) Build manifest CSV (labels + probe/validate summaries)
+python .\backend\src\build_manifest.py `
+  --audit    .\backend\data\audit\ingest_log.jsonl `
+  --out      .\backend\data\derived\manifest.csv `
+  --meta     .\backend\datasets\train\metadata.json `
+  --probe    .\backend\data\derived\probe.jsonl `
+  --validate .\backend\data\derived\validate.jsonl
+
+# 7) Analyze metadata (sanity checks + suspicion score)
+python .\backend\src\analyze_metadata.py `
+  --probe .\backend\data\derived\probe.jsonl `
+  --out   .\backend\data\derived\metadata_analysis.jsonl
+
+# 8) ELA (Error Level Analysis) over sampled frames
+# Quick test: limit to first 200 frames
+python .\backend\src\models\compute_ela.py `
+  --frames   .\backend\data\derived\frames.jsonl `
+  --root     .\backend\data\derived\frames `
+  --out      .\backend\data\derived\frames_ela.jsonl `
+  --overlays .\backend\data\derived\overlays `
+  --jpeg-quality 85 `
+  --scale 10 `
+  --limit 200
+
+# Full ELA run (all frames, defaults ok)
+# python .\backend\src\models\compute_ela.py --jpeg-quality 85 --scale 10
