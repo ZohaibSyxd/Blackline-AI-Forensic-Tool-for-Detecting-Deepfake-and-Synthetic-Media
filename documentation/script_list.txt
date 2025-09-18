@@ -28,13 +28,14 @@ python .\backend\src\scene_detect.py `
   --min-shot-ms 400
 
 # 5) Per-shot frame sampling (frames.jsonl + JPEGs)
-# Frames only
-python .\backend\src\sample_frames.py `
+# Frames only (Lowered values for quick testing at the moment)
+python -m backend.src.sample_frames `
   --shots       .\backend\data\derived\shots.jsonl `
   --frames-out  .\backend\data\derived\frames.jsonl `
   --frames-root .\backend\data\derived\frames `
-  --fps 8 `
-  --jpeg-quality 90
+  --fps 2 `
+  --jpeg-quality 85 `
+  --limit 400
 
 # (Optional) Also extract clips per shot
 python .\backend\src\sample_frames.py `
@@ -72,3 +73,15 @@ python .\backend\src\models\compute_ela.py `
 
 # Full ELA run (all frames, defaults ok)
 # python .\backend\src\models\compute_ela.py --jpeg-quality 85 --scale 10
+
+# 9) Copy-Move detection over sampled frames
+# Quick test: limit to first 200 frames
+python -m backend.src.models.compute_copy_move `
+  --frames   backend\data\derived\frames.jsonl `
+  --root     backend\data\derived\frames `
+  --out      backend\data\derived\frames_copy_move.jsonl `
+  --overlays backend\data\derived\overlays `
+  --limit 200
+
+# Full Copy-Move run (all frames, defaults ok)
+# python -m backend.src.models.compute_copy_move
