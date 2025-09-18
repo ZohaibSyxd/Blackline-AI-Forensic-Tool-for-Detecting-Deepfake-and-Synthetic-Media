@@ -15,7 +15,45 @@ Usage (PowerShell)
 import argparse, json, time
 from pathlib import Path
 
-from utils import read_unique_assets, ffprobe_json, exiftool_json, summarize_ffprobe
+from .utils import read_unique_assets, ffprobe_json, exiftool_json, summarize_ffprobe
+
+
+def probe_asset(
+    stored_path: str,
+    store_root: str | None,
+    sha256: str,
+    mime: str | None,
+    *,
+    no_exif: bool = False
+) -> dict | None:
+    """Probe a single asset already ingested. Returns probe record structure.
+
+    stored_path: relative path like "<sha>/<filename>" under store_root
+    store_root: absolute or relative root directory where raw assets were stored
+    sha256: content hash
+    mime: optional mime determined at ingest
+    no_exif: skip exiftool for speed
+    """
+    p = Path(store_root, stored_path) if store_root else Path(stored_path)
+    if not p.exists():
+        return None
+    if mime and not str(mime).lower().startswith("video/"):
+        return None
+    ffj = ffprobe_json(p)
+    exj = None if no_exif else exiftool_json(p)
+    summary = summarize_ffprobe(ffj)
+    return {
+        "asset_id": None,  # caller can fill
+        "sha256": sha256,
+        "stored_path": stored_path,
+        "store_root": store_root,
+        "mime": mime,
+        "probe": ffj,
+        "exif": exj,
+        "summary": summary,
+        "when": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "tool_versions": {},
+    }
 
 
 def main():
@@ -33,7 +71,7 @@ def main():
         for rec in read_unique_assets(Path(args.audit)):
             # stored_path is now relative to store_root; reconstruct absolute path if store_root present
             store_root = rec.get("store_root")
-            p = Path(store_root, rec["stored_path"]) if store_root else Path(rec["stored_path"]) 
+            p = Path(store_root, rec["stored_path"]) if store_root else Path(rec["stored_path"])
             # Skip non-video assets in a video-only pipeline
             if rec.get("mime") and not str(rec.get("mime")).lower().startswith("video/"):
                 continue

@@ -25,7 +25,7 @@ import argparse, json, math, re, time, shutil
 from pathlib import Path
 from typing import List, Tuple, Optional
 
-from utils import read_unique_assets, ffprobe_json, run_command
+from .utils import read_unique_assets, ffprobe_json, run_command
 
 SCENE_RE = re.compile(
     r"pts_time[:=]\s*([0-9]+(?:\.[0-9]+)?)|lavfi\.scene_score(?:\s*[:=]\s*|\s*value=)([0-9]+(?:\.[0-9]+)?)"

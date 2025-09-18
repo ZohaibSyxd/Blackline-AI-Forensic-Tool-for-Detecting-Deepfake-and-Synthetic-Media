@@ -7,7 +7,7 @@ import argparse, json, time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from utils import parse_rate
+from .utils import parse_rate
 
 
 def parse_ratio(value: Optional[str]) -> Optional[float]:

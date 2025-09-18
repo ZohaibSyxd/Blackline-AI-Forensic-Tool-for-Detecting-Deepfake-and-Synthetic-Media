@@ -34,6 +34,60 @@ def sha256sum(path, chunk_size=1024*1024):
             h.update(chunk)
     return h.hexdigest()
 
+def ingest_single_file(src_file: Path, store_root: Path, move: bool = False, user: str | None = None, when_iso: str | None = None) -> dict | None:
+    """Ingest a single media file and return the audit record (without writing it).
+
+    Returns None if extension not allowed.
+    """
+    if not src_file.exists() or not src_file.is_file():
+        raise FileNotFoundError(str(src_file))
+    if src_file.suffix.lower() not in ALLOWED_EXTS:
+        return None
+    user = user or getpass.getuser()
+    when_iso = when_iso or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    store_root.mkdir(parents=True, exist_ok=True)
+    sha = sha256sum(src_file)
+    dest_dir = store_root / sha
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / src_file.name
+    action = "copy"
+    if dest.exists():
+        action = "duplicate"
+    else:
+        if move:
+            shutil.move(str(src_file), str(dest))
+            action = "move"
+        else:
+            shutil.copy2(src_file, dest)
+    asset_id = str(uuid.uuid4())
+    record = {
+        "asset_id": asset_id,
+        "when": when_iso,
+        "who": user,
+        "sha256": sha,
+        "action": action,
+        "tool_version": TOOL_VERSION,
+        "stored_path": f"{sha}/{dest.name}",
+        "store_root": str(store_root),
+    }
+    mime, _ = mimetypes.guess_type(str(dest))
+    if not mime:
+        ext = dest.suffix.lower()
+        ext_map = {
+            ".mp4": "video/mp4",
+            ".m4v": "video/x-m4v",
+            ".webm": "video/webm",
+            ".mkv": "video/x-matroska",
+            ".mov": "video/quicktime",
+            ".avi": "video/x-msvideo",
+            ".mpg": "video/mpeg",
+            ".mpeg": "video/mpeg",
+        }
+        mime = ext_map.get(ext)
+    if mime:
+        record["mime"] = mime
+    return record
+
 def iter_files(path: Path):
     """Yield files under a path (single file or recursive directory walk)."""
     if path.is_file():
@@ -46,7 +100,6 @@ def iter_files(path: Path):
 def should_keep(p: Path):
     """Return True if the file extension is in the allowed media set."""
     return p.suffix.lower() in ALLOWED_EXTS
-
 
 def main():
     ap = argparse.ArgumentParser(description="Immutable ingest with SHA-256 + audit log")
@@ -69,60 +122,14 @@ def main():
     # Walk files and process only allowed media
     for f in iter_files(src):
         total += 1
-        if not should_keep(f):
+        rec = ingest_single_file(f, store_root, move=args.move, user=user, when_iso=now_iso)
+        if rec is None:
             skipped += 1
             continue
-        # Compute content hash and derive destination folder
-        sha = sha256sum(f)
-        dest_dir = store_root / sha
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / f.name
-
-        action = "copy"
-        if dest.exists():
-            # Duplicate content (same hash + name); keep a single canonical copy
-            action = "duplicate"
-        else:
-            if args.move:
-                shutil.move(str(f), str(dest))
-                action = "move"
-            else:
-                shutil.copy2(f, dest)
-
-        # Stable asset identifier (separate from content hash)
-        asset_id = str(uuid.uuid4())
-        record = {
-            "asset_id": asset_id,
-            "when": now_iso,
-            "who": user,
-            "sha256": sha,
-            "action": action,
-            "tool_version": TOOL_VERSION,
-            "stored_path": f"{sha}/{dest.name}",
-            "store_root": str(store_root),
-        }
-        # Add MIME type (best-effort)
-        mime, _ = mimetypes.guess_type(str(dest))
-        if not mime:
-            ext = dest.suffix.lower()
-            ext_map = {
-                ".mp4": "video/mp4",
-                ".m4v": "video/x-m4v",
-                ".webm": "video/webm",
-                ".mkv": "video/x-matroska",
-                ".mov": "video/quicktime",
-                ".avi": "video/x-msvideo",
-                ".mpg": "video/mpeg",
-                ".mpeg": "video/mpeg",
-            }
-            mime = ext_map.get(ext)
-        if mime:
-            record["mime"] = mime
-        # Append to audit log (JSON Lines)
         with open(audit_path, "a", encoding="utf-8") as out:
-            out.write(json.dumps(record) + "\n")
+            out.write(json.dumps(rec) + "\n")
         kept += 1
-        print(f"[{action}] {f.name}  ->  {dest.name}  ({sha[:12]}...)")
+        print(f"[{rec['action']}] {f.name}  ->  {Path(rec['stored_path']).name}  ({rec['sha256'][:12]}...)")
 
     print(f"\nDone. scanned={total} kept={kept} skipped={skipped}")
     print(f"audit log → {audit_path}")

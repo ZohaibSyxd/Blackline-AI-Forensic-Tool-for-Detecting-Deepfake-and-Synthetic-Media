@@ -97,3 +97,28 @@ input.upload-hidden {
   display: flex;
   gap: 8px;
 }
+
+.result-box {
+  text-align: left;
+  margin-top: 24px;
+  padding: 16px 18px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.result-box h4 { margin: 0 0 8px 0; }
+.result-box ul { margin: 0 0 8px 16px; padding: 0; }
+.result-box summary { cursor: pointer; font-weight: 600; }
+.result-box pre { background:#fff; border:1px solid #e5e7eb; padding:8px; border-radius:6px; max-height:240px; overflow:auto; }
+
+.error-box {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+  border-radius: 6px;
+  font-size: 14px;
+  text-align: left;
+}

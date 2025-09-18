@@ -30,7 +30,7 @@ import argparse, json, math, os, shutil, time, subprocess
 from pathlib import Path
 from typing import Dict, Any
 
-from utils import run_command
+from .utils import run_command
 
 def ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
