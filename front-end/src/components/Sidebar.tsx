@@ -24,6 +24,7 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDeletePage, onBulkDelete, onRenamePage, onReorder, pages }) => {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<boolean>(() => localStorage.getItem('sidebar-collapsed') === '1');
   // multi-select state for bulk actions
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const lastClickedRef = useRef<string | null>(null);
@@ -50,11 +51,15 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
     if (saved) {
       document.documentElement.style.setProperty("--sidebar-width", saved);
     }
+    if (collapsed) {
+      document.documentElement.style.setProperty('--sidebar-width', '72px');
+    }
   }, []);
 
   useEffect(() => {
     const handle = handleRef.current;
     if (!handle) return;
+    if (collapsed) return; // disable resizing when collapsed
 
     let startX = 0;
     let startWidth = 0;
@@ -88,7 +93,18 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
 
     handle.addEventListener("pointerdown", onPointerDown);
     return () => handle.removeEventListener("pointerdown", onPointerDown);
-  }, []);
+  }, [collapsed]);
+
+  // persist collapsed state changes and adjust width
+  useEffect(() => {
+    localStorage.setItem('sidebar-collapsed', collapsed ? '1' : '0');
+    if (collapsed) {
+      document.documentElement.style.setProperty('--sidebar-width', '72px');
+    } else {
+      const saved = localStorage.getItem('sidebar-width') || '300px';
+      document.documentElement.style.setProperty('--sidebar-width', saved);
+    }
+  }, [collapsed]);
 
   // Close open item menus when clicking outside the sidebar
   useEffect(() => {
@@ -144,20 +160,52 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
   };
 
   return (
-    <aside className="sidebar" ref={sidebarRef}>
+    <aside className={`sidebar${collapsed ? ' collapsed' : ''}`} ref={sidebarRef}>
       <div className="sidebar-resize-handle" ref={handleRef} title="Resize sidebar" />
       <div className="sidebar-header">
-        <span className="logo">Blackline Forensics <span className="for-figma">AI</span></span>
-      </div>
-  {/* top area intentionally kept minimal (logo above). Profile and settings moved to the footer below the search */}
-      {/* render NEW ANALYSIS as its own centered box so it can resize with the sidebar */}
-      <div className="home-container">
-        <button className="home-replace-button" onClick={() => { onAddPage && onAddPage(); }}>
-          <span className="home-add-icon" aria-hidden>+</span>
-          <span className="new-bubble">NEW ANALYSIS</span>
+        {!collapsed && (
+          <span className="logo">Blackline Forensics <span className="for-figma">AI</span></span>
+        )}
+        <button
+          className="collapse-toggle"
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? 'Expand' : 'Collapse'}
+          onClick={() => setCollapsed(v => !v)}
+        >
+          {collapsed ? '›' : '‹'}
         </button>
       </div>
+  {/* top area intentionally kept minimal (logo above). Profile and settings moved to the footer below the search */}
+      {/* render NEW ANALYSIS button depending on collapsed state */}
+      {!collapsed ? (
+        <div className="home-container">
+          <button className="home-replace-button" onClick={() => { onAddPage && onAddPage(); }}>
+            <span className="home-add-icon" aria-hidden>+</span>
+            <span className="new-bubble">NEW ANALYSIS</span>
+          </button>
+        </div>
+      ) : (
+        <div className="home-compact">
+          <button className="home-compact-btn" onClick={() => { onAddPage && onAddPage(); }} title="New analysis" aria-label="New analysis">+</button>
+        </div>
+      )}
+
       <nav className="sidebar-nav">
+        {collapsed ? (
+          <div className="collapsed-icon-list">
+            {pages.filter(p => p.key !== 'dashboard').map(item => (
+              <button
+                key={item.key}
+                className={`collapsed-icon-btn${active === item.key ? ' active' : ''}`}
+                title={item.label}
+                aria-label={item.label}
+                onClick={() => onNavigate(item.key)}
+              >
+                <span className="sidebar-item-icon" aria-hidden>{item.icon || '📁'}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
         <DragDropContext onDragEnd={(result: DropResult) => {
           const { source, destination } = result;
           if (!destination) return;
@@ -311,22 +359,38 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
             )}
           </Droppable>
         </DragDropContext>
+        )}
       </nav>
-  <input className="sidebar-search" placeholder="Search for..." />
+  {!collapsed && <input className="sidebar-search" placeholder="Search for..." />}
 
-  {/* footer: profile left, settings right (under the search) */}
-  <div className="sidebar-footer">
-    <div className="profile-container">
-  <button className="profile-btn" title="Profile" aria-label="Profile" onClick={() => setProfileOpen(p => !p)} aria-haspopup="dialog">
-        <img src={userProfileIcon} alt="" aria-hidden width="16" height="16" />
-        <span className="visually-hidden">Open profile</span>
+  {/* footer */}
+  {collapsed ? (
+    <div className="sidebar-footer collapsed-footer">
+      <div className="profile-container">
+        <button className="profile-btn" title="Profile" aria-label="Profile" onClick={() => setProfileOpen(p => !p)} aria-haspopup="dialog">
+          <img src={userProfileIcon} alt="" aria-hidden width="16" height="16" />
+          <span className="visually-hidden">Open profile</span>
+        </button>
+        <ProfilePopup open={profileOpen} onClose={() => setProfileOpen(false)} user={{ name: 'Guest User', email: 'guest@example.com', plan: 'Guest' }} />
+      </div>
+      <button className="settings-btn" title="Settings" aria-label="Settings">
+        <img src={settingsIcon} alt="" aria-hidden width="16" height="16" />
       </button>
-      <ProfilePopup open={profileOpen} onClose={() => setProfileOpen(false)} user={{ name: 'Guest User', email: 'guest@example.com', plan: 'Guest' }} />
     </div>
-    <button className="settings-btn" title="Settings" aria-label="Settings">
-      <img src={settingsIcon} alt="" aria-hidden width="16" height="16" />
-    </button>
-  </div>
+  ) : (
+    <div className="sidebar-footer">
+      <div className="profile-container">
+        <button className="profile-btn" title="Profile" aria-label="Profile" onClick={() => setProfileOpen(p => !p)} aria-haspopup="dialog">
+          <img src={userProfileIcon} alt="" aria-hidden width="16" height="16" />
+          <span className="visually-hidden">Open profile</span>
+        </button>
+        <ProfilePopup open={profileOpen} onClose={() => setProfileOpen(false)} user={{ name: 'Guest User', email: 'guest@example.com', plan: 'Guest' }} />
+      </div>
+      <button className="settings-btn" title="Settings" aria-label="Settings">
+        <img src={settingsIcon} alt="" aria-hidden width="16" height="16" />
+      </button>
+    </div>
+  )}
       <ConfirmDialog
         open={confirmOpen}
         title="Confirm deletion"
