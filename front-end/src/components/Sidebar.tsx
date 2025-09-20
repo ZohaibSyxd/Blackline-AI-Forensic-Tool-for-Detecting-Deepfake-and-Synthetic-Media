@@ -5,6 +5,7 @@ import './Sidebar.css';
 import ConfirmDialog from './ConfirmDialog';
 import NewAnalysisModal from './NewAnalysisModal';
 import ProfilePopup from './ProfilePopup';
+import IconPickerModal from './IconPickerModal';
 import userProfileIcon from '../../assets/icons8-profile-100.png';
 import settingsIcon from '../../assets/icons8-setting-100.png';
 
@@ -16,12 +17,13 @@ interface SidebarProps {
   onBulkDelete?: (keys: string[]) => void;
   onRenamePage?: (key: string, newName?: string) => void;
   onReorder?: (fromKey: string, toIndex: number) => void;
+  onChangeIcon?: (key: string, icon?: string) => void;
   pages: { key: string; label: string; icon?: string }[];
 }
 
 // pages are provided by the parent (App) so the sidebar reflects dynamic additions
 
-const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDeletePage, onBulkDelete, onRenamePage, onReorder, pages }) => {
+const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDeletePage, onBulkDelete, onRenamePage, onReorder, onChangeIcon, pages }) => {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() => localStorage.getItem('sidebar-collapsed') === '1');
@@ -40,6 +42,9 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
   const confirmActionRef = useRef<(() => void) | null>(null);
   // search state
   const [searchQuery, setSearchQuery] = useState<string>('');
+  // icon picker state
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [iconPickerKey, setIconPickerKey] = useState<string | null>(null);
 
   const askConfirm = (message: string, onConfirm: () => void) => {
     setConfirmMessage(message);
@@ -345,9 +350,19 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
                                   ) : (
                                     <>
                                       {item.icon ? (
-                                        <span className="sidebar-item-icon" aria-hidden>{item.icon}</span>
+                                        <span
+                                          className={`sidebar-item-icon ${onChangeIcon ? 'clickable' : ''}`}
+                                          aria-hidden
+                                          onClick={(e) => { e.stopPropagation(); if (onChangeIcon) { setIconPickerKey(item.key); setIconPickerOpen(true); } }}
+                                          title="Change icon"
+                                        >{item.icon}</span>
                                       ) : (
-                                        <span className="sidebar-item-icon folder-emoji" aria-hidden>📁</span>
+                                        <span
+                                          className={`sidebar-item-icon folder-emoji ${onChangeIcon ? 'clickable' : ''}`}
+                                          aria-hidden
+                                          onClick={(e) => { e.stopPropagation(); if (onChangeIcon) { setIconPickerKey(item.key); setIconPickerOpen(true); } }}
+                                          title="Change icon"
+                                        >📁</span>
                                       )}
                                       <span className="sidebar-label">{item.label}</span>
                                     </>
@@ -575,6 +590,20 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
         onConfirm={() => { confirmActionRef.current && confirmActionRef.current(); }}
         onCancel={() => setConfirmOpen(false)}
       />
+      {iconPickerOpen && iconPickerKey && (
+        <IconPickerModal
+          isOpen={iconPickerOpen}
+          currentIcon={pages.find(p => p.key === iconPickerKey)?.icon}
+          onClose={() => { setIconPickerOpen(false); setIconPickerKey(null); }}
+          onSelect={(ic) => {
+            if (onChangeIcon && iconPickerKey) {
+              onChangeIcon(iconPickerKey, ic);
+            }
+            setIconPickerOpen(false);
+            setIconPickerKey(null);
+          }}
+        />
+      )}
     </aside>
   );
 };

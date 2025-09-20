@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './NewAnalysisModal.css';
-
-// Emoji options for users to choose from
-const ICONS = ['📁', '📂', '🗂️', '🧪', '🎬', '🧠', '🔍', '📊'];
+import { ICONS } from './icons';
 
 interface Props {
   isOpen: boolean;

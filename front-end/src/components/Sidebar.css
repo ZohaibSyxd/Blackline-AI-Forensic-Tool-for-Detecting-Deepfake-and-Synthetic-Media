@@ -453,6 +453,11 @@ body.sidebar-resizing-global, body.sidebar-resizing-global * {
   height: 18px;
 }
 
+/* Make icons that can be changed visually interactive */
+.sidebar-item-icon.clickable { cursor: pointer; border-radius: 6px; }
+.sidebar-item-icon.clickable:hover { background: #f3f4f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.18); }
+.sidebar-item-icon.clickable:active { background: #e5e7eb; }
+
 .sidebar-link-left { min-width: 0; }
 .sidebar-label {
   display: inline-block;

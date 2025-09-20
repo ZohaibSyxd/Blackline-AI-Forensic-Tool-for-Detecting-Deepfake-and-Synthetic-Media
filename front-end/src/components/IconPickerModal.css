@@ -1,0 +1,11 @@
+.ip-overlay{position:fixed;inset:0;background:rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;z-index:1000}
+.ip-panel{background:#fff;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.15);padding:16px;min-width:320px;max-width:420px}
+.ip-title{margin:0 0 10px 0;font-size:16px}
+.ip-icons{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.ip-icon-btn{border:1px solid #e5e7eb;border-radius:8px;background:#fff;width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.ip-icon-btn:hover{background:#f5f6fa}
+.ip-icon-btn.selected{box-shadow:0 0 0 3px rgba(59,130,246,.20)}
+.ip-emoji{font-size:22px}
+.ip-actions{display:flex;justify-content:flex-end;margin-top:12px}
+.ip-btn{border-radius:8px;border:1px solid #e5e7eb;padding:8px 12px;background:#fff;cursor:pointer}
+.ip-btn:hover{background:#f5f6fa}

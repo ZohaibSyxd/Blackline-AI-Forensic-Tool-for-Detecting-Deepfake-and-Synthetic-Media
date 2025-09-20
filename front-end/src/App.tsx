@@ -90,6 +90,10 @@ const App: React.FC = () => {
 		setPages((p) => p.map(x => x.key === key ? { ...x, label: name as string } : x));
 	};
 
+	const changeIcon = (key: string, icon?: string) => {
+		setPages(p => p.map(x => x.key === key ? { ...x, icon } : x));
+	};
+
 	let content;
 	if (page === "dashboard") {
 		content = <Dashboard />;
@@ -113,7 +117,7 @@ const App: React.FC = () => {
 		return (
 			<div className="app-layout">
 				{/* if we're on reports, keep the sidebar highlighting the last visited file */}
-				<Sidebar active={page === 'reports' ? lastFilePage : page} onNavigate={navigate} onAddPage={addPage} onDeletePage={deletePage} onBulkDelete={deletePages} onRenamePage={renamePage} onReorder={reorderPages} pages={pages} />
+				<Sidebar active={page === 'reports' ? lastFilePage : page} onNavigate={navigate} onAddPage={addPage} onDeletePage={deletePage} onBulkDelete={deletePages} onRenamePage={renamePage} onReorder={reorderPages} onChangeIcon={changeIcon} pages={pages} />
 				<NewAnalysisModal isOpen={isNewModalOpen} defaultName={`FILE ANALYSIS ${fileCount}`} onClose={() => setIsNewModalOpen(false)} onCreate={createPage} />
 				<main className="main-content">
 				{ /* determine header title: if viewing a file page, show its label; otherwise show Dashboard */ }
