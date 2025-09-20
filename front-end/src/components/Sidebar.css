@@ -7,9 +7,13 @@
   flex-direction: column;
   padding: 16px 0;
   box-sizing: border-box;
-  min-width: 300px; /* enforce a lowest minimum width so logo doesn't get squished; matches JS min */
+  min-width: 280px; /* raised minimum expanded width; JS clamp matches */
   position: relative; /* allow absolute children like the resize handle to position correctly */
+  /* Smoothen collapse/expand */
+  transition: width 260ms ease, min-width 260ms ease;
+  will-change: width, min-width;
 }
+.sidebar.resizing { transition: none !important; min-width: 72px; }
 .sidebar.collapsed { min-width: 72px; }
 .sidebar-header {
   font-weight: bold;
@@ -18,9 +22,35 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  transition: padding 240ms ease-in-out;
 }
-.collapse-toggle { border: none; background: transparent; cursor: pointer; font-size: 18px; width: 28px; height: 28px; border-radius: 6px; }
-.collapse-toggle:hover { background: #f3f4f6; }
+/* Make the logo truncate with an ellipsis when space is tight */
+.sidebar-header .logo {
+  flex: 1 1 auto;
+  min-width: 0; /* allow flex item to shrink below content width */
+  display: inline-block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Keep the toggle a fixed-size flex item so the logo absorbs shrink */
+.sidebar-header .collapse-toggle { flex: 0 0 36px; }
+.collapse-toggle {
+  cursor: pointer;
+  font-size: 18px;
+  width: 36px; /* match + button size */
+  height: 36px; /* match + button size */
+  border-radius: 8px; /* match + button radius */
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  box-sizing: border-box; /* keep size stable with border */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.collapse-toggle:hover { background: #f5f6fa; border-color: #e5e7eb; }
+.collapse-toggle:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(59,130,246,0.20); }
 
 .sidebar-add {
   padding: 0 24px 12px 24px;
@@ -73,6 +103,13 @@
 .sidebar-resize-handle:hover {
   background: linear-gradient(90deg, rgba(0,0,0,0.00), rgba(0,0,0,0.10));
 }
+
+/* While resizing, disable text selection globally and show a consistent resize cursor */
+body.sidebar-resizing-global, body.sidebar-resizing-global * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  cursor: ew-resize !important;
+}
 .sidebar-icon {
   color: #888;
   cursor: pointer;
@@ -94,6 +131,7 @@
 .sidebar-nav {
   display: flex;
   flex-direction: column;
+  transition: padding 240ms ease-in-out;
 .profile-left { display: flex; align-items: center; }
 .profile-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .profile-actions .add-page-btn { width: 34px; height: 34px; border-radius: 6px; }
@@ -112,18 +150,43 @@
   flex: 1 1 auto; /* allow nav to grow */
 }
 
-.sidebar-search {
-  margin: 16px 24px 24px 24px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  border: 1px solid #e0e0e0;
-  background: #f5f6fa;
-  outline: none;
-  margin-top: auto; /* push to bottom */
+.sidebar-search-wrap {
+  position: relative;
+  margin: 8px 20px 18px 20px; /* align with NEW ANALYSIS horizontal gutters */
+  width: calc(var(--sidebar-width, 300px) - 40px); /* fill to inner gutters */
+  flex: 0 0 auto;
 }
+.sidebar.resizing .sidebar-search-wrap { min-width: 0; }
+.sidebar-search {
+  width: 100%;
+  padding: 10px 36px 10px 12px; /* leave space for clear button */
+  border-radius: 10px; /* match NEW ANALYSIS */
+  border: 1px solid #eef0f6;
+  background: #fff;
+  outline: none;
+  box-sizing: border-box;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.sidebar-search:hover { background: #f5f6fa; border-color: #e5e7eb; }
+.sidebar-search:focus-visible { box-shadow: 0 0 0 3px rgba(59,130,246,0.20); }
+.sidebar-search::placeholder { color: #6b7280; }
+.search-clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #6b7280;
+}
+.search-clear:hover { background: #f3f4f6; }
 
 /* Collapsed (compact) layout */
-.sidebar.collapsed .sidebar-header { padding: 8px 8px 12px 8px; }
+.sidebar.collapsed .sidebar-header { padding: 8px 8px 12px 8px; justify-content: center; }
 .sidebar.collapsed .sidebar-nav { padding: 0 8px; }
 .home-compact { padding: 8px 0; display: flex; justify-content: center; }
 .home-compact-btn { width: 36px; height: 36px; border-radius: 8px; border: 1px solid #e0e0e0; background: #fff; cursor: pointer; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
@@ -149,6 +212,45 @@
 }
 .profile-btn:hover, .settings-btn:hover { background: #f3f4f6; }
 .profile-btn svg, .settings-btn svg { width: 28px; height: 28px; color: #111827 }
+/* Boxed, larger buttons in expanded footer */
+.sidebar-footer .profile-btn,
+.sidebar-footer .settings-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.sidebar-footer .profile-btn:hover,
+.sidebar-footer .settings-btn:hover { background: #f5f6fa; border-color: #e5e7eb; }
+.sidebar-footer .profile-btn:focus-visible,
+.sidebar-footer .settings-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(59,130,246,0.20); }
+.sidebar-footer .profile-btn img,
+.sidebar-footer .settings-btn img { width: 28px; height: 28px; }
+.collapsed-footer .profile-btn,
+.collapsed-footer .settings-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.collapsed-footer .profile-btn:hover,
+.collapsed-footer .settings-btn:hover { background: #f5f6fa; border-color: #e5e7eb; }
+.collapsed-footer .profile-btn:focus-visible,
+.collapsed-footer .settings-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(59,130,246,0.20); }
+.collapsed-footer .profile-btn img,
+.collapsed-footer .settings-btn img { width: 28px; height: 28px; }
 .profile-container { position: relative; }
 .visually-hidden { position: absolute !important; height: 1px; width: 1px; overflow: hidden; clip: rect(1px, 1px, 1px, 1px); white-space: nowrap; }
 
@@ -163,7 +265,7 @@
   margin: 8px 20px; /* keep horizontal gutters */
   width: calc(var(--sidebar-width, 300px) - 40px);
   /* min-width set to sidebar min (300px) minus horizontal gutters (40px) = 260px */
-  min-width: 260px; /* firm minimum width so button equals sidebar when at min width */
+  min-width: 200px; /* fit within 240px sidebar min (minus gutters) */
   border-radius:10px;
   background:#fff;
   border:1px solid #eef0f6;
@@ -172,6 +274,8 @@
   box-sizing: border-box;
   padding-right: 16px; /* smaller right reserve so label has more room */
 }
+/* Allow the NEW ANALYSIS button to shrink during live resizing to avoid overflow */
+.sidebar.resizing .home-replace-button { min-width: 0; }
 .home-replace-button .home-add-icon { width:34px; height:34px; border-radius:8px; background:#fff; display:inline-flex; align-items:center; justify-content:center; font-weight:700; }
 .home-replace-inline { display:inline-flex; align-items:center; gap:8px; }
 .home-replace-inline .home-add-icon { width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; }

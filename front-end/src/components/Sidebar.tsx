@@ -38,6 +38,8 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState('');
   const confirmActionRef = useRef<(() => void) | null>(null);
+  // search state
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   const askConfirm = (message: string, onConfirm: () => void) => {
     setConfirmMessage(message);
@@ -59,36 +61,56 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
   useEffect(() => {
     const handle = handleRef.current;
     if (!handle) return;
-    if (collapsed) return; // disable resizing when collapsed
+    if (collapsed) return; // resizing disabled when collapsed; use button to expand/collapse
 
     let startX = 0;
     let startWidth = 0;
+    let currentWidth = 0;
 
     const onPointerDown = (e: PointerEvent) => {
+      // Avoid selecting text/content when starting a resize drag
+      e.preventDefault();
       startX = e.clientX;
       const computed = getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width") || "260px";
       startWidth = parseInt(computed, 10) || 260;
+      currentWidth = startWidth;
       (e.target as Element).setPointerCapture(e.pointerId);
+      // disable transitions during manual resize for responsiveness
+      if (sidebarRef.current) sidebarRef.current.classList.add('resizing');
+      // disable global selection while dragging
+      document.body.classList.add('sidebar-resizing-global');
       document.addEventListener("pointermove", onPointerMove);
       document.addEventListener("pointerup", onPointerUp);
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      // Avoid accidental selections during drag
+      e.preventDefault();
       const dx = e.clientX - startX;
-      let newWidth = startWidth + dx;
-  const min = 300; // minimum width in px (matches CSS .sidebar min-width)
-      const max = 420; // maximum width
+      const rawWidth = startWidth + dx;
+  const min = 280; // respect expanded min width during drag
+      const max = 420;
+      let newWidth = rawWidth;
       if (newWidth < min) newWidth = min;
       if (newWidth > max) newWidth = max;
+      currentWidth = newWidth;
       const value = `${newWidth}px`;
       document.documentElement.style.setProperty("--sidebar-width", value);
-      localStorage.setItem("sidebar-width", value);
+        // Avoid writing to localStorage on every frame to keep drag smooth
     };
 
     const onPointerUp = (e: PointerEvent) => {
       try { (e.target as Element).releasePointerCapture(e.pointerId); } catch {}
       document.removeEventListener("pointermove", onPointerMove);
       document.removeEventListener("pointerup", onPointerUp);
+      // re-enable transitions after resize completes
+      if (sidebarRef.current) sidebarRef.current.classList.remove('resizing');
+      document.body.classList.remove('sidebar-resizing-global');
+      // Clamp and persist the final expanded width, and apply it immediately
+  const clamped = Math.max(280, Math.min(420, currentWidth));
+      const value = `${clamped}px`;
+      document.documentElement.style.setProperty("--sidebar-width", value);
+      localStorage.setItem("sidebar-width", value);
     };
 
     handle.addEventListener("pointerdown", onPointerDown);
@@ -159,6 +181,20 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
     setEditingKey(null);
   };
 
+  // compute list to display (exclude dashboard, and filter by search)
+  const q = searchQuery.trim().toLowerCase();
+  const allNonDashboard = pages.filter(p => p.key !== 'dashboard');
+  // tokenizes a string into alphanumeric "words" (letters/digits), splitting on spaces and punctuation
+  const getWords = (s: string) => (s.toLowerCase().match(/[a-z0-9]+/g) || []);
+  const matchesWordPrefix = (s: string, query: string) => {
+    if (!query) return true;
+    const words = getWords(s);
+    return words.some(w => w.startsWith(query));
+  };
+  const displayedPages = q
+    ? allNonDashboard.filter(p => matchesWordPrefix(p.label, q) || matchesWordPrefix(p.key, q))
+    : allNonDashboard;
+
   return (
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}`} ref={sidebarRef}>
       <div className="sidebar-resize-handle" ref={handleRef} title="Resize sidebar" />
@@ -193,7 +229,7 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
       <nav className="sidebar-nav">
         {collapsed ? (
           <div className="collapsed-icon-list">
-            {pages.filter(p => p.key !== 'dashboard').map(item => (
+            {displayedPages.map(item => (
               <button
                 key={item.key}
                 className={`collapsed-icon-btn${active === item.key ? ' active' : ''}`}
@@ -206,17 +242,18 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
             ))}
           </div>
         ) : (
-        <DragDropContext onDragEnd={(result: DropResult) => {
-          const { source, destination } = result;
-          if (!destination) return;
-          const others = pages.filter(p => p.key !== 'dashboard');
-          const fromKey = others[source.index].key;
-          const toIndex = destination.index;
-          onReorder && onReorder(fromKey, toIndex);
-        }}>
-          <Droppable droppableId="sidebar-pages">
-            {(provided) => (
-              <div ref={provided.innerRef} {...provided.droppableProps}>
+        q === '' ? (
+          <DragDropContext onDragEnd={(result: DropResult) => {
+            const { source, destination } = result;
+            if (!destination) return;
+            // since search is empty, displayedPages === allNonDashboard
+            const fromKey = displayedPages[source.index].key;
+            const toIndex = destination.index;
+            onReorder && onReorder(fromKey, toIndex);
+          }}>
+            <Droppable droppableId="sidebar-pages">
+              {(provided) => (
+                <div ref={provided.innerRef} {...provided.droppableProps}>
                 {/* bulk action bar shown when there are selected items */}
                 {selectedKeys.length > 0 && (
                   <div className="sidebar-bulk-bar">
@@ -240,7 +277,7 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
                     </div>
                   </div>
                 )}
-                {pages.filter(p => p.key !== 'dashboard').map((item, idx) => {
+                {displayedPages.map((item, idx) => {
                   const isSelected = selectedKeys.includes(item.key);
                   return (
                     <Draggable key={item.key} draggableId={item.key} index={idx}>
@@ -262,12 +299,12 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
                                   const shift = (e as unknown as MouseEvent).shiftKey;
                                   setSelectedKeys(prev => {
                                     if (shift && lastClickedRef.current) {
-                                      const others = pages.filter(p => p.key !== 'dashboard');
-                                      const start = others.findIndex(p => p.key === lastClickedRef.current);
-                                      const end = others.findIndex(p => p.key === item.key);
+                                      const listForRange = displayedPages; // with empty search, this is allNonDashboard
+                                      const start = listForRange.findIndex(p => p.key === lastClickedRef.current);
+                                      const end = listForRange.findIndex(p => p.key === item.key);
                                       if (start !== -1 && end !== -1) {
                                         const [a, b] = start < end ? [start, end] : [end, start];
-                                        const rangeKeys = others.slice(a, b + 1).map(x => x.key);
+                                        const rangeKeys = listForRange.slice(a, b + 1).map(x => x.key);
                                         if (checked) {
                                           return Array.from(new Set([...prev, ...rangeKeys]));
                                         } else {
@@ -355,13 +392,150 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
                   );
                 })}
                 {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          </DragDropContext>
+        ) : (
+          <div>
+            {/* bulk action bar shown when there are selected items */}
+            {selectedKeys.length > 0 && (
+              <div className="sidebar-bulk-bar">
+                <div className="bulk-info">{selectedKeys.length} selected</div>
+                <div className="bulk-actions">
+                  <button className="item-menu-btn" onClick={() => { setSelectedKeys([]); }}>Clear</button>
+                  <button
+                    className="item-menu-btn danger"
+                    onClick={() => {
+                      askConfirm(`Delete ${selectedKeys.length} page${selectedKeys.length === 1 ? '' : 's'}? This action cannot be undone.`, () => {
+                        if (onBulkDelete) {
+                          onBulkDelete(selectedKeys);
+                        } else if (onDeletePage) {
+                          selectedKeys.forEach(k => onDeletePage(k));
+                        }
+                        setSelectedKeys([]);
+                        setConfirmOpen(false);
+                      });
+                    }}
+                  >Delete</button>
+                </div>
               </div>
             )}
-          </Droppable>
-        </DragDropContext>
-        )}
+            {displayedPages.length === 0 && (
+              <div className="no-results">No results</div>
+            )}
+            {displayedPages.map((item) => {
+              const isSelected = selectedKeys.includes(item.key);
+              return (
+                <div key={item.key} className={`sidebar-item${(active === item.key || openMenu === item.key) ? " active" : ""}`}>
+                  <div className="sidebar-link-left" onDoubleClick={(e) => { e.stopPropagation(); startInlineRename(item.key, item.label); }}>
+                    <input
+                      type="checkbox"
+                      className="sidebar-checkbox"
+                      aria-label={`Select ${item.label}`}
+                      checked={isSelected}
+                      onClick={(e) => {
+                        const checked = (e as unknown as MouseEvent & { target: HTMLInputElement }).target['checked'];
+                        const shift = (e as unknown as MouseEvent).shiftKey;
+                        setSelectedKeys(prev => {
+                          if (shift && lastClickedRef.current) {
+                            const listForRange = displayedPages;
+                            const start = listForRange.findIndex(p => p.key === lastClickedRef.current);
+                            const end = listForRange.findIndex(p => p.key === item.key);
+                            if (start !== -1 && end !== -1) {
+                              const [a, b] = start < end ? [start, end] : [end, start];
+                              const rangeKeys = listForRange.slice(a, b + 1).map(x => x.key);
+                              if (checked) {
+                                return Array.from(new Set([...prev, ...rangeKeys]));
+                              } else {
+                                return prev.filter(k => !rangeKeys.includes(k));
+                              }
+                            }
+                          }
+                          if (checked) return Array.from(new Set([...prev, item.key]));
+                          return prev.filter(k => k !== item.key);
+                        });
+                        lastClickedRef.current = item.key;
+                        (e as any).stopPropagation();
+                      }}
+                    />
+                    {editingKey === item.key ? (
+                      <input
+                        ref={editingInputRef}
+                        className="sidebar-rename-input"
+                        value={editingValue}
+                        onChange={(e) => setEditingValue(e.target.value)}
+                        onBlur={commitInlineRename}
+                        aria-label={`Rename ${item.label}`}
+                        placeholder="Rename analysis"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { e.preventDefault(); commitInlineRename(); }
+                          else if (e.key === 'Escape') { e.preventDefault(); cancelInlineRename(); }
+                        }}
+                      />
+                    ) : (
+                      <button
+                        className="sidebar-link sidebar-link-button"
+                        aria-label={`Open ${item.label}`}
+                        onClick={() => onNavigate(item.key)}
+                      >
+                        {item.icon ? (
+                          <span className="sidebar-item-icon" aria-hidden>{item.icon}</span>
+                        ) : (
+                          <span className="sidebar-item-icon folder-emoji" aria-hidden>📁</span>
+                        )}
+                        <span className="sidebar-label">{item.label}</span>
+                      </button>
+                    )}
+                  </div>
+                  {item.key !== 'dashboard' && (
+                    <div className="sidebar-actions-wrap">
+                      <button
+                        className="item-actions"
+                        title="More"
+                        onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === item.key ? null : item.key); }}
+                      >
+                        &#8230;
+                      </button>
+
+                      {openMenu === item.key && (
+                        <div className="item-menu" onClick={(e) => e.stopPropagation()}>
+                          <button className="item-menu-btn" onClick={() => { startInlineRename(item.key, item.label); }}>Rename</button>
+                          <button
+                            className="item-menu-btn danger"
+                            onClick={() => {
+                              askConfirm(`Delete "${item.label}"? This action cannot be undone.`, () => {
+                                onDeletePage && onDeletePage(item.key);
+                                setOpenMenu(null);
+                                setConfirmOpen(false);
+                              });
+                            }}
+                          >Delete</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </nav>
-  {!collapsed && <input className="sidebar-search" placeholder="Search for..." />}
+  {!collapsed && (
+        <div className="sidebar-search-wrap">
+          <input
+            className="sidebar-search"
+            placeholder="Search for..."
+            aria-label="Search pages"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') setSearchQuery(''); }}
+          />
+          {q !== '' && (
+            <button className="search-clear" aria-label="Clear search" onClick={() => setSearchQuery('')}>×</button>
+          )}
+        </div>
+      )}
 
   {/* footer */}
   {collapsed ? (
