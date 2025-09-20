@@ -1,8 +1,12 @@
 
-import React, { useState, useRef, useEffect } from "react";
-import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
-import "./Sidebar.css";
+import React, { useState, useEffect, useRef } from 'react';
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+import './Sidebar.css';
+import ConfirmDialog from './ConfirmDialog';
+import NewAnalysisModal from './NewAnalysisModal';
 import ProfilePopup from './ProfilePopup';
+import userProfileIcon from '../../assets/icons8-profile-100.png';
+import settingsIcon from '../../assets/icons8-setting-100.png';
 
 interface SidebarProps {
   active: string;
@@ -10,7 +14,7 @@ interface SidebarProps {
   onAddPage?: () => void;
   onDeletePage?: (key: string) => void;
   onBulkDelete?: (keys: string[]) => void;
-  onRenamePage?: (key: string) => void;
+  onRenamePage?: (key: string, newName?: string) => void;
   onReorder?: (fromKey: string, toIndex: number) => void;
   pages: { key: string; label: string; icon?: string }[];
 }
@@ -25,6 +29,20 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
   const lastClickedRef = useRef<string | null>(null);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<HTMLDivElement | null>(null);
+  // inline rename state
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState<string>("");
+  const editingInputRef = useRef<HTMLInputElement | null>(null);
+  // confirm dialog state
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmMessage, setConfirmMessage] = useState('');
+  const confirmActionRef = useRef<(() => void) | null>(null);
+
+  const askConfirm = (message: string, onConfirm: () => void) => {
+    setConfirmMessage(message);
+    confirmActionRef.current = onConfirm;
+    setConfirmOpen(true);
+  };
 
   // Sidebar width state is stored as a CSS variable on the root so it's easy to read from CSS.
   useEffect(() => {
@@ -75,14 +93,55 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
   // Close open item menus when clicking outside the sidebar
   useEffect(() => {
     const handleDocClick = (e: MouseEvent) => {
-      if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
+      const target = e.target as Element;
+      const inMenu = target.closest('.item-menu');
+      const inActionsBtn = target.closest('.item-actions');
+      // If click is not on the menu or the actions button, close the open menu
+      if (!inMenu && !inActionsBtn) {
         setOpenMenu(null);
+      }
+
+      // Preserve previous behavior: if clicking completely outside the sidebar,
+      // commit any in-progress rename and exit edit mode.
+      if (sidebarRef.current && !sidebarRef.current.contains(target)) {
+        if (editingKey && editingValue.trim()) {
+          onRenamePage && onRenamePage(editingKey, editingValue.trim());
+        }
+        setEditingKey(null);
       }
     };
 
     document.addEventListener("mousedown", handleDocClick);
     return () => document.removeEventListener("mousedown", handleDocClick);
   }, []);
+
+  // focus input when entering edit mode
+  useEffect(() => {
+    if (editingKey && editingInputRef.current) {
+      editingInputRef.current.focus();
+      editingInputRef.current.select();
+    }
+  }, [editingKey]);
+
+  const startInlineRename = (itemKey: string, currentLabel: string) => {
+    if (itemKey === 'dashboard') return;
+    setEditingKey(itemKey);
+    setEditingValue(currentLabel);
+    setOpenMenu(null);
+  };
+
+  const commitInlineRename = () => {
+    if (!editingKey) return;
+    const newName = editingValue.trim();
+    if (newName) {
+      onRenamePage && onRenamePage(editingKey, newName);
+    }
+    setEditingKey(null);
+  };
+
+  const cancelInlineRename = () => {
+    setEditingKey(null);
+  };
 
   return (
     <aside className="sidebar" ref={sidebarRef}>
@@ -119,13 +178,15 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
                       <button
                         className="item-menu-btn danger"
                         onClick={() => {
-                          if (!window.confirm(`Delete ${selectedKeys.length} pages?`)) return;
-                          if (onBulkDelete) {
-                            onBulkDelete(selectedKeys);
-                          } else if (onDeletePage) {
-                            selectedKeys.forEach(k => onDeletePage(k));
-                          }
-                          setSelectedKeys([]);
+                          askConfirm(`Delete ${selectedKeys.length} page${selectedKeys.length === 1 ? '' : 's'}? This action cannot be undone.`, () => {
+                            if (onBulkDelete) {
+                              onBulkDelete(selectedKeys);
+                            } else if (onDeletePage) {
+                              selectedKeys.forEach(k => onDeletePage(k));
+                            }
+                            setSelectedKeys([]);
+                            setConfirmOpen(false);
+                          });
                         }}
                       >Delete</button>
                     </div>
@@ -142,7 +203,7 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
                             {...providedDraggable.draggableProps}
                             className={`sidebar-item${(active === item.key || openMenu === item.key) ? " active" : ""} ${snapshot.isDragging ? 'dragging' : ''}`}
                           >
-                            <div className="sidebar-link-left">
+                            <div className="sidebar-link-left" onDoubleClick={(e) => { e.stopPropagation(); startInlineRename(item.key, item.label); }}>
                               <input
                                 type="checkbox"
                                 className="sidebar-checkbox"
@@ -174,24 +235,40 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
                                   (e as any).stopPropagation();
                                 }}
                               />
-                              <button
-                                className="sidebar-link sidebar-link-button"
-                                aria-label={`Open ${item.label}`}
-                                onClick={() => onNavigate(item.key)}
-                              >
-                                {item.key === 'dashboard' ? (
-                                  <span className="home-replace-inline"><span className="home-add-icon" aria-hidden>+</span><span className="new-bubble">NEW ANALYSIS</span></span>
-                                ) : (
-                                  <>
-                                    {item.icon ? (
-                                      <span className="sidebar-item-icon" aria-hidden>{item.icon}</span>
-                                    ) : (
-                                      <span className="sidebar-item-icon folder-emoji" aria-hidden>📁</span>
-                                    )}
-                                    <span className="sidebar-label">{item.label}</span>
-                                  </>
-                                )}
-                              </button>
+                              {editingKey === item.key ? (
+                                <input
+                                  ref={editingInputRef}
+                                  className="sidebar-rename-input"
+                                  value={editingValue}
+                                  onChange={(e) => setEditingValue(e.target.value)}
+                                  onBlur={commitInlineRename}
+                                  aria-label={`Rename ${item.label}`}
+                                  placeholder="Rename analysis"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') { e.preventDefault(); commitInlineRename(); }
+                                    else if (e.key === 'Escape') { e.preventDefault(); cancelInlineRename(); }
+                                  }}
+                                />
+                              ) : (
+                                <button
+                                  className="sidebar-link sidebar-link-button"
+                                  aria-label={`Open ${item.label}`}
+                                  onClick={() => onNavigate(item.key)}
+                                >
+                                  {item.key === 'dashboard' ? (
+                                    <span className="home-replace-inline"><span className="home-add-icon" aria-hidden>+</span><span className="new-bubble">NEW ANALYSIS</span></span>
+                                  ) : (
+                                    <>
+                                      {item.icon ? (
+                                        <span className="sidebar-item-icon" aria-hidden>{item.icon}</span>
+                                      ) : (
+                                        <span className="sidebar-item-icon folder-emoji" aria-hidden>📁</span>
+                                      )}
+                                      <span className="sidebar-label">{item.label}</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
                             </div>
                             {/* action: three dots - visible on hover or when active; don't show for dashboard */}
                             {item.key !== 'dashboard' && (
@@ -208,8 +285,17 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
 
                                 {openMenu === item.key && (
                                   <div className="item-menu" onClick={(e) => e.stopPropagation()}>
-                                    <button className="item-menu-btn" onClick={() => { onRenamePage && onRenamePage(item.key); setOpenMenu(null); }}>Rename</button>
-                                    <button className="item-menu-btn danger" onClick={() => { onDeletePage && onDeletePage(item.key); setOpenMenu(null); }}>Delete</button>
+                                    <button className="item-menu-btn" onClick={() => { startInlineRename(item.key, item.label); }}>Rename</button>
+                                    <button
+                                      className="item-menu-btn danger"
+                                      onClick={() => {
+                                        askConfirm(`Delete "${item.label}"? This action cannot be undone.`, () => {
+                                          onDeletePage && onDeletePage(item.key);
+                                          setOpenMenu(null);
+                                          setConfirmOpen(false);
+                                        });
+                                      }}
+                                    >Delete</button>
                                   </div>
                                 )}
                               </div>
@@ -232,15 +318,25 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
   <div className="sidebar-footer">
     <div className="profile-container">
   <button className="profile-btn" title="Profile" aria-label="Profile" onClick={() => setProfileOpen(p => !p)} aria-haspopup="dialog">
-        <span aria-hidden>👤</span>
+        <img src={userProfileIcon} alt="" aria-hidden width="16" height="16" />
         <span className="visually-hidden">Open profile</span>
       </button>
       <ProfilePopup open={profileOpen} onClose={() => setProfileOpen(false)} user={{ name: 'Guest User', email: 'guest@example.com', plan: 'Guest' }} />
     </div>
     <button className="settings-btn" title="Settings" aria-label="Settings">
-      <span aria-hidden>⚙️</span>
+      <img src={settingsIcon} alt="" aria-hidden width="16" height="16" />
     </button>
   </div>
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Confirm deletion"
+        message={confirmMessage}
+        confirmText="Delete"
+        cancelText="Cancel"
+        danger
+        onConfirm={() => { confirmActionRef.current && confirmActionRef.current(); }}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </aside>
   );
 };

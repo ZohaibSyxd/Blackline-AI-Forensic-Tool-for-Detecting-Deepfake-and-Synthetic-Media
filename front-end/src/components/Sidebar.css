@@ -205,13 +205,14 @@
   background: transparent;
   cursor: pointer;
   font-size: 18px;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 48px; /* match row height for perfect vertical centering */
   display: flex; /* use full flexbox centering */
   align-items: center;
   justify-content: center;
   padding: 0; /* remove any extra padding that shifts baseline */
   line-height: 1; /* ensure glyph sits centered */
+  transform: translateY(-4px); /* small visual nudge; adjust to taste */
   visibility: hidden; /* keep layout, but hidden by default */
   opacity: 0;
   transition: opacity 0.12s ease, visibility 0.12s;
@@ -339,6 +340,17 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Inline rename input styling */
+.sidebar-rename-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  font: inherit;
 }
 
 /* Home replacement styles: a plus button and NEW ANALYSIS bubble */

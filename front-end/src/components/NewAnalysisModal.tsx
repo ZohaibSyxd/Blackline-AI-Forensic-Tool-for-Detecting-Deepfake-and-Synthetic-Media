@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import './NewAnalysisModal.css';
 
-const ICONS = ['📁','📄','🗂️','🧾','🔎','🧠','⚙️'];
+// Emoji options for users to choose from
+const ICONS = ['📁', '📂', '🗂️', '🧪', '🎬', '🧠', '🔍', '📊'];
 
 interface Props {
   isOpen: boolean;
@@ -28,18 +29,28 @@ const NewAnalysisModal: React.FC<Props> = ({ isOpen, defaultName = '', onClose, 
         <label className="nm-label">Name</label>
         <input className="nm-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter a name" />
 
-        <div className="nm-label">Choose an icon</div>
+        <div id="nm-icon-label" className="nm-label">Choose an icon</div>
         <div className="nm-icons">
-          {ICONS.map((ic) => (
-            <button
-              key={ic}
-              className={`nm-icon-btn ${icon === ic ? 'selected' : ''}`}
-              onClick={() => setIcon(ic)}
-              aria-pressed={icon === ic ? true : false}
-            >
-              <span className="nm-emoji">{ic}</span>
-            </button>
-          ))}
+          {ICONS.map((ic, idx) => {
+            const id = `nm-icon-${idx}`;
+            const selected = icon === ic;
+            return (
+              <span key={ic} className="nm-icon-wrap">
+                <input
+                  type="radio"
+                  id={id}
+                  name="nm-icon"
+                  className="nm-radio"
+                  checked={selected}
+                  onChange={() => setIcon(ic)}
+                  value={ic}
+                />
+                <label htmlFor={id} className={`nm-icon-btn ${selected ? 'selected' : ''}`}>
+                  <span className="nm-emoji">{ic}</span>
+                </label>
+              </span>
+            );
+          })}
         </div>
 
         <div className="nm-actions">

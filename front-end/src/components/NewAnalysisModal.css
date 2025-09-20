@@ -19,7 +19,9 @@
 .nm-label { margin-top: 8px; font-size: 13px; color: #374151; }
 .nm-input { width: 100%; padding: 10px 12px; margin-top: 6px; border-radius: 8px; border: 1px solid #e6eef6; }
 .nm-icons { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-.nm-icon-btn { padding: 8px 10px; border-radius: 8px; border: 1px solid transparent; background: #fff; cursor: pointer; }
+.nm-icon-wrap { display: inline-flex; }
+.nm-radio { position: absolute; opacity: 0; pointer-events: none; }
+.nm-icon-btn { padding: 8px 10px; border-radius: 8px; border: 1px solid transparent; background: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .nm-icon-btn.selected { background: #eef2ff; border-color: #c7d2fe; }
 .nm-emoji { font-size: 18px; }
 .nm-actions { display:flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }

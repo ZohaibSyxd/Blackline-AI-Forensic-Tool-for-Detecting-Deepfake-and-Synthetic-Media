@@ -34,6 +34,22 @@
   border-bottom: 2px solid #1f6feb;
 }
 
+/* Header more (three-dots) button and menu */
+.header-more-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.file-analysis-tab.sidebar-actions-wrap { position: relative; }
+.file-analysis-tab .item-menu { top: 28px; right: 0; }
+
 
 .file-analysis-container {
   width: 100%;

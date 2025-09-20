@@ -78,12 +78,16 @@ const App: React.FC = () => {
 		});
 	};
 
-	const renamePage = (key: string) => {
-		const current = pages.find(p => p.key === key);
-		const currentLabel = current ? current.label : '';
-		const name = prompt('Rename page', currentLabel || 'File Analysis');
+	const renamePage = (key: string, newName?: string) => {
+		// If a new name is provided (inline rename), use it; otherwise fall back to prompt.
+		let name = (newName !== undefined) ? newName : undefined;
+		if (name === undefined) {
+			const current = pages.find(p => p.key === key);
+			const currentLabel = current ? current.label : '';
+			name = prompt('Rename page', currentLabel || 'File Analysis') || undefined;
+		}
 		if (!name) return;
-		setPages((p) => p.map(x => x.key === key ? { ...x, label: name } : x));
+		setPages((p) => p.map(x => x.key === key ? { ...x, label: name as string } : x));
 	};
 
 	let content;
@@ -113,7 +117,7 @@ const App: React.FC = () => {
 				<NewAnalysisModal isOpen={isNewModalOpen} defaultName={`FILE ANALYSIS ${fileCount}`} onClose={() => setIsNewModalOpen(false)} onCreate={createPage} />
 				<main className="main-content">
 				{ /* determine header title: if viewing a file page, show its label; otherwise show Dashboard */ }
-			<SectionHeader currentPage={page} onNavigate={navigate} lastFilePage={lastFilePage} title={
+			<SectionHeader currentPage={page} onNavigate={navigate} lastFilePage={lastFilePage} onDeleteCurrent={deletePage} title={
 				page.startsWith('file')
 				    ? (pages.find(p => p.key === page)?.label || 'File Analysis')
 				    : (page === 'reports' ? (pages.find(p => p.key === lastFilePage)?.label || 'Reports') : 'Dashboard')
