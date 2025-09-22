@@ -235,6 +235,15 @@ body.sidebar-resizing-global, body.sidebar-resizing-global * {
 .sidebar-footer .settings-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(59,130,246,0.20); }
 .sidebar-footer .profile-btn img,
 .sidebar-footer .settings-btn img { width: 28px; height: 28px; }
+/* Dark mode: render footer icons white for contrast */
+:root.dark .sidebar-footer .profile-btn img,
+:root.dark .sidebar-footer .settings-btn img {
+  filter: invert(1) brightness(1.2);
+}
+:root.dark .sidebar-footer .profile-btn svg,
+:root.dark .sidebar-footer .settings-btn svg {
+  color: #ffffff;
+}
 .collapsed-footer .profile-btn,
 .collapsed-footer .settings-btn {
   width: 36px;

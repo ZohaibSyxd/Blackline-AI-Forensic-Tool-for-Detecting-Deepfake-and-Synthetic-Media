@@ -9,6 +9,7 @@ import IconPickerModal from './IconPickerModal';
 import SettingsModal from './SettingsModal';
 import userProfileIcon from '../../assets/icons8-profile-100.png';
 import settingsIcon from '../../assets/icons8-setting-100.png';
+import { initTheme } from '../theme';
 
 interface SidebarProps {
   active: string;
@@ -64,8 +65,10 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
     if (collapsed) {
       document.documentElement.style.setProperty('--sidebar-width', '72px');
     }
-    // apply stored dark mode on mount
-    try { if (localStorage.getItem('bl_dark') === '1') document.documentElement.classList.add('dark'); } catch {}
+    // Initialize theme (light/dark/system)
+    let dispose: undefined | (() => void);
+    try { const res = initTheme(); dispose = res.dispose; } catch {}
+    return () => { if (dispose) dispose(); };
   }, []);
 
   useEffect(() => {
