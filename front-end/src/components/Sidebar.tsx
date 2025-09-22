@@ -6,6 +6,7 @@ import ConfirmDialog from './ConfirmDialog';
 import NewAnalysisModal from './NewAnalysisModal';
 import ProfilePopup from './ProfilePopup';
 import IconPickerModal from './IconPickerModal';
+import SettingsModal from './SettingsModal';
 import userProfileIcon from '../../assets/icons8-profile-100.png';
 import settingsIcon from '../../assets/icons8-setting-100.png';
 
@@ -45,6 +46,8 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
   // icon picker state
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [iconPickerKey, setIconPickerKey] = useState<string | null>(null);
+  // settings modal state
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const askConfirm = (message: string, onConfirm: () => void) => {
     setConfirmMessage(message);
@@ -61,6 +64,8 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
     if (collapsed) {
       document.documentElement.style.setProperty('--sidebar-width', '72px');
     }
+    // apply stored dark mode on mount
+    try { if (localStorage.getItem('bl_dark') === '1') document.documentElement.classList.add('dark'); } catch {}
   }, []);
 
   useEffect(() => {
@@ -562,7 +567,7 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
         </button>
         <ProfilePopup open={profileOpen} onClose={() => setProfileOpen(false)} user={{ name: 'Guest User', email: 'guest@example.com', plan: 'Guest' }} />
       </div>
-      <button className="settings-btn" title="Settings" aria-label="Settings">
+      <button className="settings-btn" title="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
         <img src={settingsIcon} alt="" aria-hidden width="16" height="16" />
       </button>
     </div>
@@ -575,7 +580,7 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
         </button>
         <ProfilePopup open={profileOpen} onClose={() => setProfileOpen(false)} user={{ name: 'Guest User', email: 'guest@example.com', plan: 'Guest' }} />
       </div>
-      <button className="settings-btn" title="Settings" aria-label="Settings">
+      <button className="settings-btn" title="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
         <img src={settingsIcon} alt="" aria-hidden width="16" height="16" />
       </button>
     </div>
@@ -603,6 +608,9 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
             setIconPickerKey(null);
           }}
         />
+      )}
+      {settingsOpen && (
+        <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
       )}
     </aside>
   );

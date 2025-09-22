@@ -6,22 +6,63 @@ import Dashboard from "./pages/Dashboard";
 import FileAnalysis from "./pages/FileAnalysis";
 import Reports from "./pages/Reports";
 import SectionHeader from "./components/SectionHeader";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import NewAnalysisModal from "./components/NewAnalysisModal";
 
 
 const App: React.FC = () => {
-	const [page, setPage] = useState<string>("dashboard");
-	const [lastFilePage, setLastFilePage] = useState<string>("file1");
-	const [fileCount, setFileCount] = useState<number>(4); // next file index (existing files: 1,2,3,$)
-	const [isNewModalOpen, setIsNewModalOpen] = useState<boolean>(false);
-	const [pages, setPages] = useState<{ key: string; label: string; icon?: string }[]>([
+	const STORAGE = {
+		pages: 'bl_pages',
+		page: 'bl_page',
+		last: 'bl_lastFilePage',
+		count: 'bl_fileCount',
+	} as const;
+
+	const defaultPages: { key: string; label: string; icon?: string }[] = [
 		{ key: 'dashboard', label: 'HOME PAGE' },
 		{ key: 'file2', label: 'FILE ANALYSIS 2' },
 		{ key: 'file1', label: 'FILE ANALYSIS 1' },
 		{ key: 'file3', label: 'FILE ANALYSIS 3' },
 		{ key: 'file$', label: 'FILE ANALYSIS $' },
-	]);
+	];
+
+	const loadPages = (): { key: string; label: string; icon?: string }[] => {
+		try {
+			const raw = localStorage.getItem(STORAGE.pages);
+			if (!raw) return defaultPages;
+			const parsed = JSON.parse(raw);
+			if (!Array.isArray(parsed)) return defaultPages;
+			const cleaned = parsed.filter((p: any) => p && typeof p.key === 'string' && typeof p.label === 'string')
+								  .map((p: any) => ({ key: p.key, label: p.label, icon: p.icon }));
+			// ensure dashboard exists at index 0
+			const hasDash = cleaned.some(p => p.key === 'dashboard');
+			const withoutDash = cleaned.filter(p => p.key !== 'dashboard');
+			return [{ key: 'dashboard', label: 'HOME PAGE' }, ...(hasDash ? withoutDash : withoutDash)];
+		} catch { return defaultPages; }
+	};
+
+	const [pages, setPages] = useState<{ key: string; label: string; icon?: string }[]>(() => loadPages());
+	const [page, setPage] = useState<string>(() => localStorage.getItem(STORAGE.page) || 'dashboard');
+	const [lastFilePage, setLastFilePage] = useState<string>(() => localStorage.getItem(STORAGE.last) || 'file1');
+	const [fileCount, setFileCount] = useState<number>(() => {
+		const raw = localStorage.getItem(STORAGE.count);
+		const n = raw ? parseInt(raw, 10) : 4;
+		return Number.isFinite(n) && n > 0 ? n : 4;
+	});
+	const [isNewModalOpen, setIsNewModalOpen] = useState<boolean>(false);
+
+	// Persist to localStorage when these values change
+	useEffect(() => { try { localStorage.setItem(STORAGE.pages, JSON.stringify(pages)); } catch {} }, [pages]);
+	useEffect(() => { try { localStorage.setItem(STORAGE.page, page); } catch {} }, [page]);
+	useEffect(() => { try { localStorage.setItem(STORAGE.last, lastFilePage); } catch {} }, [lastFilePage]);
+	useEffect(() => { try { localStorage.setItem(STORAGE.count, String(fileCount)); } catch {} }, [fileCount]);
+
+	// If current page no longer exists (e.g., deleted), fall back to dashboard
+	useEffect(() => {
+		if (page.startsWith('file') && !pages.some(p => p.key === page)) {
+			setPage('dashboard');
+		}
+	}, [pages, page]);
 
 	const navigate = (p: string) => {
 		if (p.startsWith('file')) {
@@ -109,7 +150,7 @@ const App: React.FC = () => {
 			pageLabel = m ? `FILE ANALYSIS ${m[1]}` : "FILE ANALYSIS";
 		}
 
-		content = <FileAnalysis label={pageLabel} onNavigate={navigate} currentPage={page} />;
+	content = <FileAnalysis label={pageLabel} onNavigate={navigate} currentPage={page} />;
 	} else {
 		content = <Home />;
 	}

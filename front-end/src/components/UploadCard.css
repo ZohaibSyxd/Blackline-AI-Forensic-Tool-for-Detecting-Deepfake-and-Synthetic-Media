@@ -122,3 +122,16 @@ input.upload-hidden {
   font-size: 14px;
   text-align: left;
 }
+
+/* Dark mode */
+:root.dark .upload-card { background: var(--panel); box-shadow: 0 10px 28px rgba(0,0,0,0.5); }
+:root.dark .upload-drop { border-color: rgba(255,255,255,0.12); }
+:root.dark .upload-drop h3 { color: var(--text); }
+:root.dark .upload-drop .muted { color: var(--muted); }
+:root.dark .btn { background: #1f2937; color: var(--text); border-color: var(--border); }
+:root.dark .btn.primary { background: #2563eb; color: #fff; border: none; }
+:root.dark .btn.ghost { background: transparent; color: var(--text); }
+:root.dark .accept-text { color: var(--muted); }
+:root.dark .upload-preview img { border-color: var(--border); }
+:root.dark .result-box { background: #0f172a; border-color: var(--border); color: var(--text); }
+:root.dark .result-box pre { background:#111827; border-color: var(--border); color: var(--text); }

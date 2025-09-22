@@ -69,15 +69,23 @@
 
 .file-analysis-container {
   width: 100%;
-  background: #ffffff; /* make dashboard area fully white */
+  background: #ffffff; /* default light */
   padding: 48px 0 80px 0;
   display: flex;
   justify-content: center;
 }
 .file-analysis-inner {
   width: 100%;
-  background: transparent; /* inner area inherits white from container */
+  background: transparent;
   padding: 12px 16px; /* reduced inner padding so UploadCard controls the spacing */
   border-radius: 6px;
   box-sizing: border-box;
 }
+
+/* Dark mode overrides */
+:root.dark .file-analysis-container { background: var(--bg); }
+:root.dark .file-analysis-header { border-bottom-color: var(--border); }
+:root.dark .file-analysis-title { color: var(--text); }
+:root.dark .file-analysis-tab { color: var(--muted); }
+:root.dark .file-analysis-tab:hover { color: #cbd5e1; }
+:root.dark .file-analysis-tab.active { color: #60a5fa; border-bottom-color: #60a5fa; }

@@ -12,6 +12,8 @@
   /* Smoothen collapse/expand */
   transition: width 260ms ease, min-width 260ms ease;
   will-change: width, min-width;
+  /* subtle separation from main content */
+  box-shadow: 2px 0 10px rgba(20,20,30,0.06);
 }
 .sidebar.resizing { transition: none !important; min-width: 72px; }
 .sidebar.collapsed { min-width: 72px; }
@@ -201,6 +203,7 @@ body.sidebar-resizing-global, body.sidebar-resizing-global * {
   justify-content: space-between;
   align-items: center;
   padding: 8px 16px 18px 16px;
+  border-top: 1px solid #eef0f6;
 }
 .collapsed-footer { flex-direction: column; gap: 8px; padding: 8px 0 12px 0; align-items: center; }
 .profile-btn, .settings-btn {
@@ -310,6 +313,25 @@ body.sidebar-resizing-global, body.sidebar-resizing-global * {
 
 .sidebar-item.active .sidebar-link, .sidebar-link:hover {
   background: #f5f6fa;
+}
+
+/* Active/hover accent bar on the far left for better affordance */
+.sidebar-item.active .sidebar-link::before,
+.sidebar-item:hover .sidebar-link::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: #1f6feb; /* blue accent */
+}
+
+/* Keyboard focus outline on rows */
+.sidebar-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.20);
 }
 
 .sidebar-actions-wrap {
@@ -534,6 +556,14 @@ body.sidebar-resizing-global, body.sidebar-resizing-global * {
   min-width: 88px; /* ensure label keeps readable length */
   flex: 0 0 auto; /* do not shrink further */
 }
+
+/* Dark mode: make NEW ANALYSIS pill black with white text */
+:root.dark .home-replace-button .new-bubble,
+:root.dark .home-replace .new-bubble,
+:root.dark .home-replace-inline .new-bubble {
+  background: #000000;
+  color: #ffffff;
+}
 .home-label { color: #6b7280; margin-left: 6px; font-weight: 600; }
 .sidebar-link.active, .sidebar-link:hover {
   background: #f5f6fa;
@@ -591,4 +621,43 @@ body.sidebar-resizing-global, body.sidebar-resizing-global * {
 .action-grip:active { cursor: grabbing; }
 
 /* drag handle (small grip to reorder rows) */
+
+
+/* ===== Dark mode overrides for Sidebar ===== */
+:root.dark .sidebar { background: var(--panel); border-right-color: var(--border); }
+:root.dark .sidebar { box-shadow: 2px 0 14px rgba(0,0,0,0.35); }
+:root.dark .collapse-toggle { background: #111827; border-color: #374151; color: var(--text); }
+:root.dark .collapse-toggle:hover { background: #1f2937; border-color: #4b5563; }
+:root.dark .sidebar-resize-handle::before { background: #475569; }
+
+:root.dark .sidebar-search { background: #0b1220; border-color: #374151; color: var(--text); }
+:root.dark .sidebar-search:hover { background: #111827; border-color: #4b5563; }
+:root.dark .sidebar-search::placeholder { color: var(--muted); }
+:root.dark .search-clear { color: var(--muted); }
+:root.dark .search-clear:hover { background: #1f2937; }
+
+:root.dark .collapsed-icon-btn { background: #111827; border-color: #374151; }
+:root.dark .collapsed-icon-btn.active,
+:root.dark .collapsed-icon-btn:hover { background: #1f2937; }
+
+:root.dark .sidebar-footer { border-top: 1px solid var(--border); }
+:root.dark .sidebar-footer .profile-btn,
+:root.dark .sidebar-footer .settings-btn { background: #111827; border-color: #374151; }
+:root.dark .sidebar-footer .profile-btn:hover,
+:root.dark .sidebar-footer .settings-btn:hover { background: #1f2937; border-color: #4b5563; }
+
+:root.dark .home-replace-button { background:#111827; border-color:#374151; color: var(--text); }
+:root.dark .home-replace-button .home-add-icon { background:#0b1220; border:1px solid #374151; color: var(--text); }
+
+:root.dark .sidebar-link { color: var(--text); }
+:root.dark .sidebar-item.active .sidebar-link,
+:root.dark .sidebar-link:hover { background: #0b1220; }
+:root.dark .sidebar-label { color: var(--text); }
+
+:root.dark .item-menu { background: #111827; border-color: #374151; color: var(--text); box-shadow: 0 6px 18px rgba(0,0,0,0.35); }
+:root.dark .item-menu-btn:hover { background: #1f2937; }
+:root.dark .item-menu-btn.danger:hover { background: rgba(185,28,28,0.18); }
+
+:root.dark .sidebar-bulk-bar { background: #0b1220; border-color: #374151; color: var(--text); }
+:root.dark .sidebar-item-icon.clickable:hover { background: #1f2937; box-shadow: 0 0 0 3px rgba(59,130,246,0.18); }
 

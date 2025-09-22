@@ -17,3 +17,23 @@
 }
 
 /* allow pages to control their own widths; no global max-width here */
+
+/* Dark mode basics */
+:root.dark {
+  --bg: #0f172a;
+  --text: #e5e7eb;
+  --panel: #111827;
+  --border: #374151;
+  --muted: #9ca3af;
+}
+:root.dark body { background: var(--bg); color: var(--text); }
+:root.dark .main-content { background: var(--bg); color: var(--text); }
+
+/* Utility overrides (for Tailwind-like classes used in pages) */
+:root.dark .bg-white { background-color: var(--panel) !important; }
+:root.dark .bg-gray-50 { background-color: var(--bg) !important; }
+:root.dark .text-gray-900 { color: var(--text) !important; }
+:root.dark .text-gray-700 { color: var(--muted) !important; }
+:root.dark .shadow-md, :root.dark .shadow { box-shadow: 0 10px 24px rgba(0,0,0,0.45) !important; }
+:root.dark .border, :root.dark .border-gray-200 { border-color: var(--border) !important; }
+
