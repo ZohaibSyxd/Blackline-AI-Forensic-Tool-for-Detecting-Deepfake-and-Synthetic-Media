@@ -1,4 +1,4 @@
-"""
+r"""
 Per-shot frame sampling (and optional clip extraction).
 
 Outputs:
@@ -34,6 +34,17 @@ from .utils import run_command
 
 def ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
+
+def _normalize_path_str(s: str | None) -> Path:
+    """Convert possibly Windows-style path strings to a proper Path on this OS.
+    - Replaces backslashes with forward slashes
+    - Strips surrounding quotes
+    Returns Path("") if s is falsy.
+    """
+    if not s:
+        return Path("")
+    s2 = s.strip().strip('"').strip("'").replace("\\", "/")
+    return Path(s2)
 
 def sample_frames_one_shot(
     video_path: Path,
@@ -135,9 +146,19 @@ def main():
             shot = json.loads(line)
             sha = shot["sha256"]
             store_root = shot.get("store_root")
-            video_path = Path(store_root, shot["stored_path"]) if store_root else Path(shot["stored_path"])
+            stored_path = shot.get("stored_path")
+            root_path = _normalize_path_str(store_root) if store_root else None
+            stored_rel = _normalize_path_str(stored_path)
+            video_path = (root_path / stored_rel) if root_path else stored_rel
+
+            # Fallback: if the combined path doesn't exist, try common default root
             if not video_path.exists():
-                continue
+                alt = Path("backend/data/raw") / stored_rel
+                if alt.exists():
+                    video_path = alt
+                else:
+                    # Skip if we can't resolve the video
+                    continue
 
             shot_idx = int(shot["shot_index"])
             t_start_ms = int(shot["t_start_ms"])
@@ -165,14 +186,17 @@ def main():
                 dt_ms = int(round(1000.0 / max(1, args.fps)))
                 for i in range(n):
                     approx_t = t_start_ms + i * dt_ms
-                    rel_uri = f"frames/{sha}/{shot_idx}/{i:06d}.jpg"
+                    # ffmpeg starts numbering at 1 ("%06d.jpg" -> 000001.jpg),
+                    # so we use 1-based filenames for URIs and frame_index for consistency.
+                    file_idx = i + 1
+                    rel_uri = f"frames/{sha}/{shot_idx}/{file_idx:06d}.jpg"
                     row: Dict[str, Any] = {
                         "asset_id": shot.get("asset_id"),
                         "sha256": sha,
                         "stored_path": shot.get("stored_path"),
                         "store_root": store_root,
                         "shot_index": shot_idx,
-                        "frame_index": i,
+                        "frame_index": file_idx,
                         "approx_t_ms": approx_t,
                         "uri": rel_uri,
                         "fps": args.fps,

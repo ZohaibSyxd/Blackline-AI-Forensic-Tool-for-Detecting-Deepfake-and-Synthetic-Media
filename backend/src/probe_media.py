@@ -1,4 +1,4 @@
-"""
+r"""
 src/probe_media.py
 
 Probe video files with ffprobe and ExifTool (videos only).
