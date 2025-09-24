@@ -4,6 +4,6 @@
 .cd-message { color:#111827; margin: 8px 0 12px; }
 .cd-actions { display:flex; justify-content:flex-end; gap:8px; }
 .cd-btn { padding:8px 12px; border-radius:8px; border:none; background:#f3f4f6; cursor:pointer; }
-.cd-btn-primary { background:#1f6feb; color:white; }
+.cd-btn-primary { background: var(--accent); color: var(--accent-foreground); }
 .cd-btn-danger { background:#dc2626; color:white; }
 @keyframes cd-fade { from { transform: translateY(-6px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
