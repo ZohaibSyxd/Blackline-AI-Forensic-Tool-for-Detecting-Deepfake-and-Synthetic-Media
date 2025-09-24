@@ -47,7 +47,17 @@ python .\backend\src\sample_frames.py `
   --extract-clips `
   --clips-root .\backend\data\derived\clips
 
-# 6) Build manifest CSV (labels + probe/validate summaries)
+# 6) Normalize frames & compute quality metrics (Step 5 of code guide)
+# Standardize to 224x224, compute blur/brightness/pHash, optional face crops
+python .\backend\src\normalize_frames.py `
+  --frames       .\backend\data\derived\frames.jsonl `
+  --frames-root  .\backend\data\derived\frames `
+  --out          .\backend\data\derived\frames_normalized.jsonl `
+  --normalized-root .\backend\data\derived\normalized `
+  --target-size 224 `
+  --extract-faces
+
+# 7) Build manifest CSV (labels + probe/validate summaries)
 python .\backend\src\build_manifest.py `
   --audit    .\backend\data\audit\ingest_log.jsonl `
   --out      .\backend\data\derived\manifest.csv `
@@ -55,16 +65,16 @@ python .\backend\src\build_manifest.py `
   --probe    .\backend\data\derived\probe.jsonl `
   --validate .\backend\data\derived\validate.jsonl
 
-# 7) Analyze metadata (sanity checks + suspicion score)
+# 8) Analyze metadata (sanity checks + suspicion score)
 python .\backend\src\analyze_metadata.py `
   --probe .\backend\data\derived\probe.jsonl `
   --out   .\backend\data\derived\metadata_analysis.jsonl
 
-# 8) ELA (Error Level Analysis) over sampled frames
+# 9) ELA (Error Level Analysis) over normalized frames
 # Quick test: limit to first 200 frames
 python .\backend\src\models\compute_ela.py `
-  --frames   .\backend\data\derived\frames.jsonl `
-  --root     .\backend\data\derived\frames `
+  --frames   .\backend\data\derived\frames_normalized.jsonl `
+  --root     .\backend\data\derived\normalized `
   --out      .\backend\data\derived\frames_ela.jsonl `
   --overlays .\backend\data\derived\overlays `
   --jpeg-quality 85 `
@@ -74,14 +84,41 @@ python .\backend\src\models\compute_ela.py `
 # Full ELA run (all frames, defaults ok)
 # python .\backend\src\models\compute_ela.py --jpeg-quality 85 --scale 10
 
-# 9) Copy-Move detection over sampled frames
+# 10) Copy-Move detection over normalized frames
 # Quick test: limit to first 200 frames
 python -m backend.src.models.compute_copy_move `
-  --frames   backend\data\derived\frames.jsonl `
-  --root     backend\data\derived\frames `
-  --out      backend\data\derived\frames_copy_move.jsonl `
-  --overlays backend\data\derived\overlays `
+  --frames   .\backend\data\derived\frames_normalized.jsonl `
+  --root     .\backend\data\derived\normalized `
+  --out      .\backend\data\derived\frames_copy_move.jsonl `
+  --overlays .\backend\data\derived\overlays `
   --limit 200
 
 # Full Copy-Move run (all frames, defaults ok)
 # python -m backend.src.models.compute_copy_move
+
+# 11) Noise analysis over normalized frames
+# Quick test: limit to first 200 frames
+python .\backend\src\models\compute_noise.py `
+  --frames   .\backend\data\derived\frames_normalized.jsonl `
+  --root     .\backend\data\derived\normalized `
+  --out      .\backend\data\derived\frames_noise.jsonl `
+  --overlays .\backend\data\derived\overlays `
+  --limit 200
+
+# Full Noise analysis run (all frames, defaults ok)
+# python .\backend\src\models\compute_noise.py
+
+# 12) Deepfake detection (currently stubbed)
+# Quick test: limit to first 50 frames
+python .\backend\src\models\df_detector.py `
+  --frames   .\backend\data\derived\frames_normalized.jsonl `
+  --root     .\backend\data\derived\normalized `
+  --out      .\backend\data\derived\frames_deepfake.jsonl `
+  --limit 50
+
+# Full Deepfake detection run (all frames, defaults ok)
+# python .\backend\src\models\df_detector.py
+
+# 13) FastAPI server for web interface
+# Run the web API server (requires uvicorn)
+# uvicorn backend.src.api_server:app --reload --port 8000
