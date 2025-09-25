@@ -3,6 +3,8 @@ backend/data/raw/
 backend/datasets/train/
 backend/datasets/test/
 backend/data/derived/frames/
+backend/data/derived/faces/
+backend/data/derived/normalized/
 
 backend/data/derived/overlays/ela/
 backend/data/derived/overlays/copy_move/

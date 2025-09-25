@@ -6,22 +6,22 @@
 # pip install -r documentation/requirements.txt
 
 # 1) Ingest
-python .\backend\src\ingest.py .\backend\datasets --store .\backend\data\raw
+python -m backend.src.ingest .\backend\datasets --store .\backend\data\raw
 
 # 2) Probe container/streams (ffprobe) + EXIF (optional)
 # Add --no-exif for speed if needed
-python .\backend\src\probe_media.py `
+python -m backend.src.probe_media `
   --audit .\backend\data\audit\ingest_log.jsonl `
   --out   .\backend\data\derived\probe.jsonl
 
 # 3) Validate format & safe decode
-python .\backend\src\validate_media.py `
+python -m backend.src.validate_media `
   --audit .\backend\data\audit\ingest_log.jsonl `
   --out   .\backend\data\derived\validate.jsonl
 
 # 4) Scene/shot detection → shots.jsonl
 # threshold: 0.30–0.50 typical; min-shot-ms merges very short shots
-python .\backend\src\scene_detect.py `
+python -m backend.src.scene_detect `
   --audit .\backend\data\audit\ingest_log.jsonl `
   --out   .\backend\data\derived\shots.jsonl `
   --threshold 0.30 `
@@ -38,7 +38,7 @@ python -m backend.src.sample_frames `
   --limit 400
 
 # (Optional) Also extract clips per shot
-python .\backend\src\sample_frames.py `
+python -m backend.src.sample_frames `
   --shots       .\backend\data\derived\shots.jsonl `
   --frames-out  .\backend\data\derived\frames.jsonl `
   --frames-root .\backend\data\derived\frames `
@@ -49,7 +49,7 @@ python .\backend\src\sample_frames.py `
 
 # 6) Normalize frames & compute quality metrics (Step 5 of code guide)
 # Standardize to 224x224, compute blur/brightness/pHash, optional face crops
-python .\backend\src\normalize_frames.py `
+python -m backend.src.normalize_frames `
   --frames       .\backend\data\derived\frames.jsonl `
   --frames-root  .\backend\data\derived\frames `
   --out          .\backend\data\derived\frames_normalized.jsonl `
@@ -58,7 +58,7 @@ python .\backend\src\normalize_frames.py `
   --extract-faces
 
 # 7) Build manifest CSV (labels + probe/validate summaries)
-python .\backend\src\build_manifest.py `
+python -m backend.src.build_manifest `
   --audit    .\backend\data\audit\ingest_log.jsonl `
   --out      .\backend\data\derived\manifest.csv `
   --meta     .\backend\datasets\train\metadata.json `
@@ -66,13 +66,13 @@ python .\backend\src\build_manifest.py `
   --validate .\backend\data\derived\validate.jsonl
 
 # 8) Analyze metadata (sanity checks + suspicion score)
-python .\backend\src\analyze_metadata.py `
+python -m backend.src.analyze_metadata `
   --probe .\backend\data\derived\probe.jsonl `
   --out   .\backend\data\derived\metadata_analysis.jsonl
 
 # 9) ELA (Error Level Analysis) over normalized frames
 # Quick test: limit to first 200 frames
-python .\backend\src\models\compute_ela.py `
+python -m backend.src.models.ela_detector.compute_ela `
   --frames   .\backend\data\derived\frames_normalized.jsonl `
   --root     .\backend\data\derived\normalized `
   --out      .\backend\data\derived\frames_ela.jsonl `
@@ -81,10 +81,31 @@ python .\backend\src\models\compute_ela.py `
   --scale 10 `
   --limit 200
 
-# Full ELA run (all frames, defaults ok)
-# python .\backend\src\models\compute_ela.py --jpeg-quality 85 --scale 10
+# 9a) ELA over sampled frames (raw, recommended for strongest signal)
+# Quick test: limit to first 200 frames
+python -m backend.src.models.ela_detector.compute_ela `
+  --frames   .\backend\data\derived\frames.jsonl `
+  --root     .\backend\data\derived\frames `
+  --out      .\backend\data\derived\frames_ela_raw.jsonl `
+  --overlays .\backend\data\derived\overlays `
+  --jpeg-quality 85 `
+  --scale 10 `
+  --limit 200
 
-# 10) Copy-Move detection over normalized frames
+# Full ELA run (all frames, defaults ok)
+# python -m backend.src.models.ela_detector.compute_ela --jpeg-quality 85 --scale 10
+
+#9b) ELA analysis
+python -m backend.src.models.ela_detector.eval_ela `
+  --ela      .\backend\data\derived\frames_ela_raw.jsonl `
+  --manifest .\backend\data\derived\manifest.csv `
+  --cv-k 5 `
+  --seed 42 `
+  --agg median `
+  --metric ela_error_mean `
+  --out .\backend\data\derived\ela_eval_cv.json
+
+# 10) Copy-Move detection over normalized frames (NOT USING ANYMORE!!!!!!)
 # Quick test: limit to first 200 frames
 python -m backend.src.models.compute_copy_move `
   --frames   .\backend\data\derived\frames_normalized.jsonl `
@@ -98,7 +119,7 @@ python -m backend.src.models.compute_copy_move `
 
 # 11) Noise analysis over normalized frames
 # Quick test: limit to first 200 frames
-python .\backend\src\models\compute_noise.py `
+python -m backend.src.models.compute_noise `
   --frames   .\backend\data\derived\frames_normalized.jsonl `
   --root     .\backend\data\derived\normalized `
   --out      .\backend\data\derived\frames_noise.jsonl `
@@ -110,14 +131,14 @@ python .\backend\src\models\compute_noise.py `
 
 # 12) Deepfake detection (currently stubbed)
 # Quick test: limit to first 50 frames
-python .\backend\src\models\df_detector.py `
+python -m backend.src.models.df_detector `
   --frames   .\backend\data\derived\frames_normalized.jsonl `
   --root     .\backend\data\derived\normalized `
   --out      .\backend\data\derived\frames_deepfake.jsonl `
   --limit 50
 
 # Full Deepfake detection run (all frames, defaults ok)
-# python .\backend\src\models\df_detector.py
+# python -m backend.src.models.df_detector
 
 # 13) FastAPI server for web interface
 # Run the web API server (requires uvicorn)
