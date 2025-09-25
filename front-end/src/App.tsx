@@ -150,7 +150,7 @@ const App: React.FC = () => {
 			pageLabel = m ? `FILE ANALYSIS ${m[1]}` : "FILE ANALYSIS";
 		}
 
-	content = <FileAnalysis label={pageLabel} onNavigate={navigate} currentPage={page} />;
+	content = <FileAnalysis key={page} label={pageLabel} onNavigate={navigate} currentPage={page} />;
 	} else {
 		content = <Home />;
 	}

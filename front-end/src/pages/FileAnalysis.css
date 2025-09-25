@@ -30,8 +30,8 @@
 }
 
 .file-analysis-tab.active {
-  color: #1f6feb;
-  border-bottom: 2px solid #1f6feb;
+  color: var(--accent);
+  border-bottom: 2px solid var(--accent);
 }
 
 /* Header more (three-dots) button and menu */
@@ -88,4 +88,4 @@
 :root.dark .file-analysis-title { color: var(--text); }
 :root.dark .file-analysis-tab { color: var(--muted); }
 :root.dark .file-analysis-tab:hover { color: #cbd5e1; }
-:root.dark .file-analysis-tab.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+:root.dark .file-analysis-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
