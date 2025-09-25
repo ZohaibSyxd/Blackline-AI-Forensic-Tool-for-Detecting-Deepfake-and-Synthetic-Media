@@ -14,6 +14,7 @@ const labelFor = (filePage?: string) => {
 const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
   const label = labelFor(filePage);
   const [analyses, setAnalyses] = useState<StoredAnalysisSummary[]>([]);
+  const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'analyzedAt', dir: 'desc' });
   const [selected, setSelected] = useState<StoredAnalysisSummary | null>(null); // single row detail panel
   const [checkedIds, setCheckedIds] = useState<string[]>([]); // multi-select for bulk actions
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -24,8 +25,7 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
 
   useEffect(() => {
     const list = filePage ? getAnalysesForPage(filePage) : getAllAnalyses();
-    // newest first
-    list.sort((a,b) => b.analyzedAt - a.analyzedAt);
+    // default sort (analyzedAt desc) applied via sort state effect below
     setAnalyses(list);
     setCheckedIds([]); // reset selection on page change
   }, [filePage]);
@@ -116,6 +116,49 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
     return { total, avgLikelihood, maxLikelihood, suspicious };
   }, [analyses]);
 
+  // Apply sorting whenever list or sort state changes
+  useEffect(() => {
+    if (!analyses.length) return;
+    setAnalyses(prev => {
+      const arr = [...prev];
+      const dir = sort.dir === 'asc' ? 1 : -1;
+      arr.sort((a,b) => {
+        function cmpNums(x:number,y:number){ return x===y?0:(x<y?-1:1); }
+        let res = 0;
+        switch (sort.key) {
+          case 'file': res = a.fileName.localeCompare(b.fileName); break;
+          case 'resolution': {
+            const aR = (a.summary.width||0) * (a.summary.height||0);
+            const bR = (b.summary.width||0) * (b.summary.height||0);
+            res = cmpNums(aR,bR); break; }
+          case 'duration': res = cmpNums(a.summary.duration_s||0, b.summary.duration_s||0); break;
+          case 'codec': res = (a.summary.codec||'').localeCompare(b.summary.codec||''); break;
+          case 'likelihood': res = cmpNums(a.summary.deepfake_likelihood||0, b.summary.deepfake_likelihood||0); break;
+          case 'label': res = (a.summary.deepfake_label||'').localeCompare(b.summary.deepfake_label||''); break;
+          case 'analyzedAt': res = cmpNums(a.analyzedAt, b.analyzedAt); break;
+          default: res = 0;
+        }
+        return res * dir;
+      });
+      return arr;
+    });
+  }, [sort.key, sort.dir]);
+
+  // Re-run sorting when analyses list itself changes (e.g., new / delete) respecting current sort
+  useEffect(() => {
+    if (!analyses.length) return;
+    setSort(s => ({ ...s })); // trigger effect above by shallow state churn
+  }, [analyses.length]);
+
+  function onSort(key: string) {
+    setSort(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'analyzedAt' ? 'desc' : 'asc' });
+  }
+
+  function ariaSortAttr(key:string) {
+    if (sort.key !== key) return undefined; // omit attribute when unsorted per WAI-ARIA practices
+    return sort.dir === 'asc' ? 'ascending' : 'descending';
+  }
+
   return (
     <div className="reports-page">
       <div className="reports-inner">
@@ -151,13 +194,13 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
               <div className="thead" role="rowgroup">
                 <div className="tr" role="row">
                   <div className="th sel" role="columnheader"><input type="checkbox" aria-label="Select all" checked={allChecked} onChange={toggleAll}/></div>
-                  <div className="th" role="columnheader">File</div>
-                  <div className="th" role="columnheader">Resolution</div>
-                  <div className="th" role="columnheader">Duration</div>
-                  <div className="th" role="columnheader">Codec</div>
-                  <div className="th" role="columnheader">Deepfake Likelihood</div>
-                  <div className="th" role="columnheader">Label</div>
-                  <div className="th" role="columnheader">Analyzed</div>
+                  <div className={`th sortable ${sort.key==='file' ? 'sorted '+sort.dir : ''}`} role="columnheader" aria-sort={ariaSortAttr('file')} onClick={()=>onSort('file')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('file'); }}}>File <span className="sort-indicator" aria-hidden="true">{sort.key==='file' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
+                  <div className={`th sortable ${sort.key==='resolution' ? 'sorted '+sort.dir : ''}`} role="columnheader" aria-sort={ariaSortAttr('resolution')} onClick={()=>onSort('resolution')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('resolution'); }}}>Resolution <span className="sort-indicator" aria-hidden="true">{sort.key==='resolution' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
+                  <div className={`th sortable ${sort.key==='duration' ? 'sorted '+sort.dir : ''}`} role="columnheader" aria-sort={ariaSortAttr('duration')} onClick={()=>onSort('duration')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('duration'); }}}>Duration <span className="sort-indicator" aria-hidden="true">{sort.key==='duration' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
+                  <div className={`th sortable ${sort.key==='codec' ? 'sorted '+sort.dir : ''}`} role="columnheader" aria-sort={ariaSortAttr('codec')} onClick={()=>onSort('codec')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('codec'); }}}>Codec <span className="sort-indicator" aria-hidden="true">{sort.key==='codec' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
+                  <div className={`th sortable ${sort.key==='likelihood' ? 'sorted '+sort.dir : ''}`} role="columnheader" aria-sort={ariaSortAttr('likelihood')} onClick={()=>onSort('likelihood')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('likelihood'); }}}>Deepfake Likelihood <span className="sort-indicator" aria-hidden="true">{sort.key==='likelihood' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
+                  <div className={`th sortable ${sort.key==='label' ? 'sorted '+sort.dir : ''}`} role="columnheader" aria-sort={ariaSortAttr('label')} onClick={()=>onSort('label')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('label'); }}}>Label <span className="sort-indicator" aria-hidden="true">{sort.key==='label' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
+                  <div className={`th sortable ${sort.key==='analyzedAt' ? 'sorted '+sort.dir : ''}`} role="columnheader" aria-sort={ariaSortAttr('analyzedAt')} onClick={()=>onSort('analyzedAt')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('analyzedAt'); }}}>Analyzed <span className="sort-indicator" aria-hidden="true">{sort.key==='analyzedAt' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
                 </div>
               </div>
               <div className="tbody" role="rowgroup">
