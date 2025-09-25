@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import "./Reports.css";
 import { getAnalysesForPage, getAllAnalyses, StoredAnalysisSummary, deleteAnalyses, upsertAnalysis } from '../state/analysisStore';
+import { removeFile as removePersistedFile } from '../utils/uploadPersistence';
 
 const labelFor = (filePage?: string) => {
   if (!filePage) return "FILE ANALYSIS";
@@ -18,6 +19,7 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
   const [selected, setSelected] = useState<StoredAnalysisSummary | null>(null); // single row detail panel
   const [checkedIds, setCheckedIds] = useState<string[]>([]); // multi-select for bulk actions
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(null); // for single delete via row "×"
   const [undoBuffer, setUndoBuffer] = useState<StoredAnalysisSummary[] | null>(null);
   const [undoTimer, setUndoTimer] = useState<number | null>(null);
   const lastCheckIndexRef = useRef<number | null>(null);
@@ -78,24 +80,52 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
     // open custom modal instead of native confirm
     setShowDeleteConfirm(true);
   }
-  function performBulkDelete() {
-    // capture items for undo
-    const toDelete = analyses.filter(a => checkedIds.includes(a.id));
-    deleteAnalyses(checkedIds, filePage);
-    // refresh list
+  function performDelete(ids: string[]) {
+    if (!ids.length) return;
+    const idSet = new Set(ids);
+    const toDelete = analyses.filter(a => idSet.has(a.id));
+    // Also remove from Uploads (Documents) page storage and persisted blobs
+    try {
+      const storageKey = filePage ? `bl_uploadItems_${filePage}_v3` : `bl_uploadItems__global_v3`;
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        try {
+          const arr = JSON.parse(raw);
+          if (Array.isArray(arr)) {
+            const filtered = arr.filter((x: any) => !idSet.has(x.id));
+            localStorage.setItem(storageKey, JSON.stringify(filtered));
+          }
+        } catch {}
+      }
+      // remove persisted File blobs in IndexedDB (fire and forget)
+      ids.forEach(id => {
+        const composite = filePage ? `${filePage}::${id}` : id;
+        try { void removePersistedFile(composite); } catch {}
+      });
+    } catch {}
+    deleteAnalyses(ids, filePage);
+    // Broadcast deletion so UploadCard can clear in-memory refs if mounted
+    try {
+      const ev = new CustomEvent('bl:uploads-removed', { detail: { pageKey: filePage || 'global', ids } });
+      window.dispatchEvent(ev);
+    } catch {}
     const list = filePage ? getAnalysesForPage(filePage) : getAllAnalyses();
     list.sort((a,b)=> b.analyzedAt - a.analyzedAt);
     setAnalyses(list);
-    setCheckedIds([]);
-    if (selected && checkedIds.includes(selected.id)) setSelected(null);
+    setCheckedIds(prev => prev.filter(id => !idSet.has(id)));
+    if (selected && idSet.has(selected.id)) setSelected(null);
     setShowDeleteConfirm(false);
-    // setup undo buffer & timer
+    setPendingDeleteIds(null);
     if (undoTimer) window.clearTimeout(undoTimer);
     setUndoBuffer(toDelete);
     const t = window.setTimeout(()=> { setUndoBuffer(null); setUndoTimer(null); }, 7000);
     setUndoTimer(t);
   }
-  function cancelBulkDelete() { setShowDeleteConfirm(false); }
+  function performBulkDelete() { performDelete(checkedIds); }
+  function cancelBulkDelete() {
+    setShowDeleteConfirm(false);
+    setPendingDeleteIds(null);
+  }
   function undoDelete() {
     if (!undoBuffer) return;
     // restore items (keep original analyzedAt, id)
@@ -105,6 +135,29 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
     setAnalyses(list);
     setUndoBuffer(null);
     if (undoTimer) { window.clearTimeout(undoTimer); setUndoTimer(null); }
+  }
+
+  // Keyboard shortcuts for modal: ESC = cancel, Enter = confirm
+  const modalOpen = showDeleteConfirm || !!pendingDeleteIds;
+  useEffect(() => {
+    if (!modalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelBulkDelete();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        performDelete(pendingDeleteIds || checkedIds);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [modalOpen, pendingDeleteIds, checkedIds]);
+
+  function handleSingleDelete(item: StoredAnalysisSummary, e?: React.MouseEvent) {
+    if (e) e.stopPropagation();
+    // open confirmation modal for single delete
+    setPendingDeleteIds([item.id]);
   }
 
   const aggregate = React.useMemo(() => {
@@ -194,13 +247,13 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
               <div className="thead" role="rowgroup">
                 <div className="tr" role="row">
                   <div className="th sel" role="columnheader"><input type="checkbox" aria-label="Select all" checked={allChecked} onChange={toggleAll}/></div>
-                  <div className={`th sortable ${sort.key==='file' ? 'sorted '+sort.dir : ''}`} role="columnheader" aria-sort={ariaSortAttr('file')} onClick={()=>onSort('file')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('file'); }}}>File <span className="sort-indicator" aria-hidden="true">{sort.key==='file' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
-                  <div className={`th sortable ${sort.key==='resolution' ? 'sorted '+sort.dir : ''}`} role="columnheader" aria-sort={ariaSortAttr('resolution')} onClick={()=>onSort('resolution')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('resolution'); }}}>Resolution <span className="sort-indicator" aria-hidden="true">{sort.key==='resolution' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
-                  <div className={`th sortable ${sort.key==='duration' ? 'sorted '+sort.dir : ''}`} role="columnheader" aria-sort={ariaSortAttr('duration')} onClick={()=>onSort('duration')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('duration'); }}}>Duration <span className="sort-indicator" aria-hidden="true">{sort.key==='duration' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
-                  <div className={`th sortable ${sort.key==='codec' ? 'sorted '+sort.dir : ''}`} role="columnheader" aria-sort={ariaSortAttr('codec')} onClick={()=>onSort('codec')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('codec'); }}}>Codec <span className="sort-indicator" aria-hidden="true">{sort.key==='codec' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
-                  <div className={`th sortable ${sort.key==='likelihood' ? 'sorted '+sort.dir : ''}`} role="columnheader" aria-sort={ariaSortAttr('likelihood')} onClick={()=>onSort('likelihood')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('likelihood'); }}}>Deepfake Likelihood <span className="sort-indicator" aria-hidden="true">{sort.key==='likelihood' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
-                  <div className={`th sortable ${sort.key==='label' ? 'sorted '+sort.dir : ''}`} role="columnheader" aria-sort={ariaSortAttr('label')} onClick={()=>onSort('label')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('label'); }}}>Label <span className="sort-indicator" aria-hidden="true">{sort.key==='label' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
-                  <div className={`th sortable ${sort.key==='analyzedAt' ? 'sorted '+sort.dir : ''}`} role="columnheader" aria-sort={ariaSortAttr('analyzedAt')} onClick={()=>onSort('analyzedAt')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('analyzedAt'); }}}>Analyzed <span className="sort-indicator" aria-hidden="true">{sort.key==='analyzedAt' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
+                  <div className={`th sortable ${sort.key==='file' ? 'sorted '+sort.dir : ''}`} role="columnheader" {...(sort.key==='file' ? { 'aria-sort': (sort.dir==='asc'?'ascending':'descending') } : {})} onClick={()=>onSort('file')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('file'); }}}>File <span className="sort-indicator" aria-hidden="true">{sort.key==='file' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
+                  <div className={`th sortable ${sort.key==='resolution' ? 'sorted '+sort.dir : ''}`} role="columnheader" {...(sort.key==='resolution' ? { 'aria-sort': (sort.dir==='asc'?'ascending':'descending') } : {})} onClick={()=>onSort('resolution')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('resolution'); }}}>Resolution <span className="sort-indicator" aria-hidden="true">{sort.key==='resolution' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
+                  <div className={`th sortable ${sort.key==='duration' ? 'sorted '+sort.dir : ''}`} role="columnheader" {...(sort.key==='duration' ? { 'aria-sort': (sort.dir==='asc'?'ascending':'descending') } : {})} onClick={()=>onSort('duration')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('duration'); }}}>Duration <span className="sort-indicator" aria-hidden="true">{sort.key==='duration' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
+                  <div className={`th sortable ${sort.key==='codec' ? 'sorted '+sort.dir : ''}`} role="columnheader" {...(sort.key==='codec' ? { 'aria-sort': (sort.dir==='asc'?'ascending':'descending') } : {})} onClick={()=>onSort('codec')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('codec'); }}}>Codec <span className="sort-indicator" aria-hidden="true">{sort.key==='codec' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
+                  <div className={`th sortable ${sort.key==='likelihood' ? 'sorted '+sort.dir : ''}`} role="columnheader" {...(sort.key==='likelihood' ? { 'aria-sort': (sort.dir==='asc'?'ascending':'descending') } : {})} onClick={()=>onSort('likelihood')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('likelihood'); }}}>Deepfake Likelihood <span className="sort-indicator" aria-hidden="true">{sort.key==='likelihood' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
+                  <div className={`th sortable ${sort.key==='label' ? 'sorted '+sort.dir : ''}`} role="columnheader" {...(sort.key==='label' ? { 'aria-sort': (sort.dir==='asc'?'ascending':'descending') } : {})} onClick={()=>onSort('label')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('label'); }}}>Label <span className="sort-indicator" aria-hidden="true">{sort.key==='label' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
+                  <div className={`th sortable ${sort.key==='analyzedAt' ? 'sorted '+sort.dir : ''}`} role="columnheader" {...(sort.key==='analyzedAt' ? { 'aria-sort': (sort.dir==='asc'?'ascending':'descending') } : {})} onClick={()=>onSort('analyzedAt')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('analyzedAt'); }}}>Analyzed <span className="sort-indicator" aria-hidden="true">{sort.key==='analyzedAt' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
                 </div>
               </div>
               <div className="tbody" role="rowgroup">
@@ -211,8 +264,11 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                   const flagged = likelihood > 0.5;
                   const bucket = Math.round(pctNum/5)*5; // 0,5,...100
                   const pctClass = 'p'+bucket;
+                  const isActive = selected?.id===a.id && selected.analyzedAt===a.analyzedAt;
+                  const isChecked = checkedIds.includes(a.id);
+                  const showDelete = isActive || isChecked; // show when row is active (clicked) or checkbox-selected
                   return (
-                    <div className={`tr ${flagged ? 'flagged' : ''} ${selected?.id===a.id && selected.analyzedAt===a.analyzedAt ? 'active' : ''}`} role="row" key={a.id+"-"+a.analyzedAt} onClick={(e) => { if(!(e.target as HTMLElement).closest('.sel input')) setSelected(a); }}>
+                    <div className={`tr ${flagged ? 'flagged' : ''} ${isActive ? 'active' : ''} ${showDelete ? 'has-action' : ''}`} role="row" key={a.id+"-"+a.analyzedAt} onClick={(e) => { if(!(e.target as HTMLElement).closest('.sel input')) setSelected(a); }}>
                       <div className="td sel" role="cell"><input type="checkbox" aria-label={`Select ${a.fileName}`} checked={checkedIds.includes(a.id)} readOnly onClick={(e)=>handleCheckboxClick(e, a.id, idx)} /></div>
                       <div className="td filename" role="cell" title={a.fileName}>{a.fileName}</div>
                       <div className="td" role="cell">{a.summary.width && a.summary.height ? `${a.summary.width}x${a.summary.height}` : '—'}</div>
@@ -223,7 +279,10 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                         <span className={`pct-text ${flagged? 'alert': ''}`}>{pct}</span>
                       </div>
                       <div className="td" role="cell">{a.summary.deepfake_label || '—'}</div>
-                      <div className="td" role="cell">{new Date(a.analyzedAt).toLocaleString()}</div>
+                      <div className="td analyzed-cell" role="cell">
+                        <span className="analyzed-text">{new Date(a.analyzedAt).toLocaleString()}</span>
+                        <button className="row-delete" aria-label={`Delete ${a.fileName}`} title="Delete" onClick={(e)=>handleSingleDelete(a, e)}>×</button>
+                      </div>
                     </div>
                   );
                 })}
@@ -256,14 +315,22 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
           </div>
         )}
       </div>
-      {showDeleteConfirm && (
+      {(showDeleteConfirm || pendingDeleteIds) && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="del-title" onMouseDown={(e)=> { if (e.target===e.currentTarget) cancelBulkDelete(); }}>
           <div className="modal" role="document">
-            <h3 id="del-title">Delete {checkedIds.length} analysis{checkedIds.length>1?'es':''}?</h3>
-            <p className="modal-text">This action will permanently remove the selected item{checkedIds.length>1?'s':''} from this report. It cannot be undone.</p>
+            {(() => {
+              const ids = pendingDeleteIds || checkedIds;
+              const count = ids.length;
+              return (
+                <>
+                  <h3 id="del-title">Delete {count} analysis{count>1?'es':''}?</h3>
+                  <p className="modal-text">This action will permanently remove the selected item{count>1?'s':''} from this report. It cannot be undone.</p>
+                </>
+              );
+            })()}
             <div className="modal-actions">
               <button className="btn" onClick={cancelBulkDelete}>Cancel</button>
-              <button className="btn danger" onClick={performBulkDelete} autoFocus>Delete</button>
+              <button className="btn danger" onClick={() => performDelete(pendingDeleteIds || checkedIds)} autoFocus>Delete</button>
             </div>
           </div>
         </div>

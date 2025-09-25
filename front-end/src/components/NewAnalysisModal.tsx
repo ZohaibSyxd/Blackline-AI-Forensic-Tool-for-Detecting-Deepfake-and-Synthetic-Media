@@ -101,8 +101,7 @@ const NewAnalysisModal: React.FC<Props> = ({ isOpen, defaultName = '', onClose, 
               </span>
             );
           })}
-        </div>
-        // yep
+  </div>
 
         <div className="nm-actions">
           <button type="button" className="nm-btn nm-btn-secondary" onClick={onClose}>Cancel</button>

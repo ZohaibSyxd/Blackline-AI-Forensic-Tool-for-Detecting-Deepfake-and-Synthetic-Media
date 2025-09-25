@@ -56,6 +56,39 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   const replaceTargetId = useRef<string | null>(null);
   // keep Files in-memory (not persisted), keyed by item id
   const filesRef = useRef<Record<string, File | undefined>>({});
+  const [undoBuf, setUndoBuf] = useState<{ item: UploadItem; file?: File; index: number } | null>(null);
+  const undoTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (undoTimerRef.current) {
+        window.clearTimeout(undoTimerRef.current);
+        undoTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Cross-page sync: when Reports deletes analyses, remove corresponding uploads here
+  useEffect(() => {
+    function onRemoved(ev: Event) {
+      try {
+        const ce = ev as CustomEvent<{ pageKey: string; ids: string[] }>;
+        const detail = ce.detail;
+        if (!detail) return;
+        const current = pageKey || 'global';
+        if (detail.pageKey !== current) return;
+        const idSet = new Set(detail.ids);
+        setItems(prev => {
+          // revoke previews and drop from memory for removed items
+          prev.forEach(it => { if (idSet.has(it.id) && it.preview) URL.revokeObjectURL(it.preview); });
+          detail.ids.forEach(id => { delete filesRef.current[id]; });
+          return prev.filter(it => !idSet.has(it.id));
+        });
+      } catch {}
+    }
+    window.addEventListener('bl:uploads-removed', onRemoved as EventListener);
+    return () => { window.removeEventListener('bl:uploads-removed', onRemoved as EventListener); };
+  }, [pageKey]);
 
   type SlimItem = Pick<UploadItem, 'id' | 'status' | 'progress' | 'preview' | 'result' | 'error'> & { fileName: string; fileType: string };
 
@@ -166,18 +199,58 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   };
 
   const removeItem = (id: string) => {
+    // capture current state for undo
+    const idx = items.findIndex(x => x.id === id);
+    const it = idx >= 0 ? items[idx] : undefined;
+    const file = it ? (filesRef.current[id] || it.file) : undefined;
+    if (!it) return;
+    if (undoTimerRef.current) { window.clearTimeout(undoTimerRef.current); undoTimerRef.current = null; }
+    setUndoBuf({ item: it, file, index: idx });
+    // proceed with removal
     setItems(prev => {
-      const it = prev.find(x => x.id === id);
-      if (it?.preview) URL.revokeObjectURL(it.preview);
+      if (it.preview) URL.revokeObjectURL(it.preview);
       delete filesRef.current[id];
       const composite = pageKey ? `${pageKey}::${id}` : id;
       delete memoryFilesGlobal[composite];
       removePersistedFile(composite);
-      // Also remove any persisted analysis summary for this item so it disappears from Reports
       try { deleteAnalyses([id], pageKey || 'global'); } catch {/* ignore */}
       return prev.filter(x => x.id !== id);
     });
+    // start undo window (7s)
+    undoTimerRef.current = window.setTimeout(() => { setUndoBuf(null); undoTimerRef.current = null; }, 7000);
   };
+
+  function undoRemove() {
+    if (!undoBuf) return;
+    const { item, file, index } = undoBuf;
+    // restore file refs and persistence
+    if (file) {
+      filesRef.current[item.id] = file;
+      const composite = pageKey ? `${pageKey}::${item.id}` : item.id;
+      memoryFilesGlobal[composite] = file;
+      try { persistFile(composite, file); } catch { /* ignore */ }
+    }
+    // regenerate preview if image
+    const preview = file && file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+    const restored: UploadItem = { ...item, file: file || item.file, preview, status: item.status };
+    setItems(prev => {
+      const arr = [...prev];
+      const insertAt = Math.min(Math.max(index, 0), arr.length);
+      arr.splice(insertAt, 0, restored);
+      return arr;
+    });
+    // re-add analysis summary to reports if exists
+    try {
+      if (item.result?.summary) {
+        const page = pageKey || 'global';
+        const fileName = file?.name || item.name || item.result?.asset?.fileName || 'File';
+        const mime = file?.type || item.mime;
+        upsertAnalysis({ id: item.id, pageKey: page, fileName, mime, analyzedAt: Date.now(), summary: item.result.summary, raw: item.result });
+      }
+    } catch { /* ignore */ }
+    setUndoBuf(null);
+    if (undoTimerRef.current) { window.clearTimeout(undoTimerRef.current); undoTimerRef.current = null; }
+  }
 
   async function analyzeItem(id: string) {
     setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'uploading', progress: 0, error: null, result: null } : it));
@@ -257,6 +330,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   function pct(v?: number) { if (v === undefined || v === null) return '—'; return (v * 100).toFixed(1) + '%'; }
 
   return (
+    <>
     <div className={`upload-card ${dragOver ? "drag-over" : ""}`}>
       <div
         className="upload-drop"
@@ -308,7 +382,6 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
                       <button
                         className="btn ghost details-toggle"
                         onClick={()=>toggleExpand(it.id)}
-                        aria-expanded={`${expanded[it.id] ? 'true' : 'false'}`}
                         aria-controls={`steps-${it.id}`}
                       >
                         {expanded[it.id] ? 'Hide Details' : 'Show Details'}
@@ -374,6 +447,13 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   <input id="file-replace" className="upload-hidden" ref={replaceRef} type="file" accept={ACCEPT} onChange={(e)=>onFiles(e.target.files as FileList)} />
       </div>
     </div>
+    {undoBuf ? (
+      <div className="toast" role="status" aria-live="polite">
+        <span>Removed {undoBuf.item.file?.name || undoBuf.item.name || 'file'}.</span>
+        <button className="btn link" onClick={undoRemove}>Undo</button>
+      </div>
+    ) : null}
+    </>
   );
 };
 

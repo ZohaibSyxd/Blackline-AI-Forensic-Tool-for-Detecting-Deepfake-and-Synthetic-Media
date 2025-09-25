@@ -240,3 +240,9 @@ input.upload-hidden {
 :root.dark .progress-details { background:#1e293b; border-color: var(--border); }
 :root.dark .upload-header-actions .btn { background:#1f2937; }
 :root.dark .upload-header-actions .btn.primary { background: var(--accent); color: var(--accent-foreground); }
+
+/* Undo toast */
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background:#111827; color:#f9fafb; border:1px solid #1f2937; padding:10px 14px; border-radius:999px; display:flex; gap:14px; align-items:center; box-shadow:0 8px 28px rgba(0,0,0,0.25); z-index: 60; font-size:14px; }
+.toast .btn.link { background: transparent; border: none; color: #93c5fd; padding: 6px 10px; border-radius: 8px; }
+.toast .btn.link:hover { text-decoration: underline; filter: none; }
+:root.dark .toast { background:#0b1220; border-color:#1f2a44; color:#e5e7eb; }

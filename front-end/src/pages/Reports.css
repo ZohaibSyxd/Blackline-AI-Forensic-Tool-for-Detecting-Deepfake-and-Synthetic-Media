@@ -129,6 +129,20 @@
 :root.dark .pct-text.alert { color:#fca5a5; }
 :root.dark .no-analyses { background:#0f172a; border-color: var(--border); color: var(--muted); }
 
+/* Inline delete button shown when checkbox-selected */
+.analyzed-cell { position:relative; display:flex; align-items:center; justify-content:flex-start; gap:8px; min-width:0; padding-right:30px; }
+.analyzed-cell .analyzed-text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.row-delete { position:absolute; right:6px; top:50%; transform:translateY(-50%); background:transparent; border:none; color:#6b7280; font-size:18px; line-height:1; cursor:pointer; padding:4px 6px; border-radius:6px; opacity:0; pointer-events:none; transition:opacity .12s ease; }
+.row-delete:hover { color:#ef4444; background:#fee2e2; }
+:root.dark .analysis-table .tbody .tr:hover .row-delete,
+.analysis-table .tbody .tr:hover .row-delete,
+.analysis-table .tbody .tr.active .row-delete {
+  opacity:1; pointer-events:auto;
+}
+.analysis-table .tbody .tr.has-action .row-delete { opacity:1; pointer-events:auto; }
+:root.dark .row-delete { color:#64748b; }
+:root.dark .row-delete:hover { color:#fca5a5; background:#3b1f1f; }
+
 /* Selection bar */
 .selection-bar { display:flex; align-items:center; gap:12px; margin:0 0 10px 0; background:#fff; border:1px solid #e5e7eb; padding:8px 14px; border-radius:8px; max-width:1180px; }
 .selection-bar .btn { font-size:13px; }
