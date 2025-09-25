@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { persistFile, loadFile, removeFile as removePersistedFile } from '../utils/uploadPersistence';
+import { upsertAnalysis, deleteAnalyses } from '../state/analysisStore';
 import "./UploadCard.css";
 
 const ACCEPT = ".jpg,.jpeg,.png,.gif,.mp4,.avi";
@@ -172,6 +173,8 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
       const composite = pageKey ? `${pageKey}::${id}` : id;
       delete memoryFilesGlobal[composite];
       removePersistedFile(composite);
+      // Also remove any persisted analysis summary for this item so it disappears from Reports
+      try { deleteAnalyses([id], pageKey || 'global'); } catch {/* ignore */}
       return prev.filter(x => x.id !== id);
     });
   };
@@ -211,6 +214,19 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
             if (xhr.status >= 200 && xhr.status < 300) {
               const data = JSON.parse(xhr.responseText) as AnalysisSummary;
               setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'done', progress: 100, result: data, error: null } : it));
+              // Persist summary for reports page
+              try {
+                const page = pageKey || 'global';
+                upsertAnalysis({
+                  id,
+                  pageKey: page,
+                  fileName: file.name,
+                  mime: file.type,
+                  analyzedAt: Date.now(),
+                  summary: data.summary || {},
+                  raw: data
+                });
+              } catch {/* swallow */}
               resolve();
             } else {
               reject(new Error(`Server ${xhr.status}: ${xhr.responseText}`));
@@ -236,10 +252,9 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
     }
   }
 
-  function pct(v?: number) {
-    if (v === undefined || v === null) return '—';
-    return (v * 100).toFixed(1) + '%';
-  }
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  function toggleExpand(id: string) { setExpanded(prev => ({ ...prev, [id]: !prev[id] })); }
+  function pct(v?: number) { if (v === undefined || v === null) return '—'; return (v * 100).toFixed(1) + '%'; }
 
   return (
     <div className={`upload-card ${dragOver ? "drag-over" : ""}`}>
@@ -261,84 +276,88 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         </div>
 
         {items.length === 0 ? (
-          <div className="empty-hint">No files yet. Use <strong>Upload More</strong> or drag & drop.</div>
+          <div
+            className="empty-hint"
+            role="button"
+            tabIndex={0}
+            onClick={handleBrowse}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleBrowse(); } }}
+            aria-label="No files yet. Activate to select files to upload."
+          >
+            No files yet. Use <strong>Upload More</strong> or drag & drop.
+          </div>
         ) : (
           <div className="items-list">
             <div className="items-scroll" role="list" aria-label="Uploaded files list">
             {items.map(it => (
               <div key={it.id} className="item-row" role="listitem">
-                {it.preview ? <img className="thumb" src={it.preview} alt={it.file ? it.file.name : (it.name || 'Uploaded file')} /> : <div className="thumb placeholder" aria-hidden>📄</div>}
+                {it.preview ? (
+                  <img className="thumb" src={it.preview} alt={it.file ? it.file.name : (it.name || 'Uploaded file')} />
+                ) : (
+                  <div className="thumb placeholder" aria-hidden />
+                )}
                 <div className="item-main">
                   <div className="file-name">{it.file ? it.file.name : (it.name || 'File')}</div>
-                  <div className="file-actions">
+                  <div className="file-actions with-status">
                     <button className="btn" onClick={() => handleReplace(it.id)} disabled={it.status==='uploading'||it.status==='analyzing'}>Replace</button>
                     <button className="btn ghost" onClick={() => removeItem(it.id)} disabled={it.status==='uploading'||it.status==='analyzing'}>Remove</button>
                     <button className="btn primary" onClick={() => analyzeItem(it.id)} disabled={it.status==='uploading'||it.status==='analyzing'||!(filesRef.current[it.id]||it.file)} title={!(filesRef.current[it.id]||it.file) ? 'File not attached. Click Replace to reattach.' : undefined}>
                       {it.status==='uploading' ? `Uploading ${it.progress}%` : (it.status==='analyzing' ? 'Analyzing…' : (it.status==='done' ? 'Re-run' : 'Analyze'))}
                     </button>
+                    {(it.status==='analyzing' || it.status==='done' || it.status==='error') && (
+                      <button
+                        className="btn ghost details-toggle"
+                        onClick={()=>toggleExpand(it.id)}
+                        aria-expanded={`${expanded[it.id] ? 'true' : 'false'}`}
+                        aria-controls={`steps-${it.id}`}
+                      >
+                        {expanded[it.id] ? 'Hide Details' : 'Show Details'}
+                      </button>
+                    )}
+                    {(it.status==='analyzing' || it.status==='done') && (
+                      <span className="status-badge push-right" aria-label="Upload complete">
+                        <span className="dot" /> Upload Complete
+                      </span>
+                    )}
                   </div>
-                  <div className="progress-steps">
-                    <div className={`step ${it.status==='analyzing' || it.status==='done' ? 'done' : ''}`}>
-                      <span className={`icon ${it.status==='uploading' ? 'pending' : (it.status==='analyzing' || it.status==='done' ? 'check' : 'pending')}`} aria-hidden="true" />
-                      <div className="step-text">
-                        <div className="title">Upload Complete</div>
-                        <div className="desc">Video file received and validated</div>
+                  {expanded[it.id] && (
+                    <div className="progress-details" id={`steps-${it.id}`}>
+                      <div className="progress-steps compact">
+                        <div className={`step ${it.status==='analyzing' || it.status==='done' ? 'active' : ''} ${it.status==='done' ? 'done' : ''}`}>
+                          <span className={`icon ${it.status==='done' ? 'check' : 'pending'}`} aria-hidden="true" />
+                          <div className="step-text">
+                            <div className="title">Frame Analysis Running</div>
+                            <div className="desc">Extracting and scanning frames</div>
+                          </div>
+                        </div>
+                        <div className={`divider ${it.status==='done' ? 'active' : ''}`} />
+                        <div className={`step ${it.status==='done' ? 'done' : ''}`}>
+                          <span className={`icon ${it.status==='done' ? 'check' : 'pending'}`} aria-hidden="true" />
+                          <div className="step-text">
+                            <div className="title">Forensics Check Passed</div>
+                            <div className="desc">Metadata and A/V consistency verified</div>
+                          </div>
+                        </div>
+                        <div className={`divider ${it.status==='done' ? 'active' : ''}`} />
+                        <div className={`step ${it.status==='done' ? ((it.result?.summary.deepfake_likelihood ?? 0) > 0.5 ? 'alert' : 'done') : ''}`}>
+                          <span className={`icon ${(it.result?.summary.deepfake_likelihood ?? 0) > 0.5 ? 'alert' : (it.status==='done' ? 'check' : 'pending')}`} aria-hidden="true" />
+                          <div className="step-text">
+                            <div className="title">{(it.result?.summary.deepfake_likelihood ?? 0) > 0.5 ? 'Manipulation Detected' : 'No Manipulation Detected'}</div>
+                            <div className="desc">{(it.result?.summary.deepfake_likelihood ?? 0) > 0.5 ? 'Suspicious regions or techniques identified' : 'No suspicious regions identified'}</div>
+                          </div>
+                        </div>
+                        <div className={`divider ${it.status==='done' ? 'active' : ''}`} />
+                        <div className={`step ${it.status==='done' ? 'done' : ''}`}>
+                          <span className={`icon ${it.status==='done' ? 'check' : 'pending'}`} aria-hidden="true" />
+                          <div className="step-text">
+                            <div className="title">Report Ready</div>
+                            <div className="desc">Download detailed forensic analysis report</div>
+                          </div>
+                        </div>
                       </div>
-                      {it.status==='uploading' && (
-                        <div className={`bar progress-p${Math.min(100, Math.max(0, Math.round(it.progress/5)*5))}`}><div className="bar-fill" /></div>
-                      )}
-                    </div>
-                    <div className={`divider ${it.status==='analyzing' || it.status==='done' || it.status==='error' ? 'active' : ''}`} />
-                    <div className={`step ${it.status==='analyzing' || it.status==='done' ? 'active' : ''} ${it.status==='done' ? 'done' : ''}`}>
-                      <span className={`icon ${it.status==='done' ? 'check' : (it.status==='analyzing' ? 'pending' : 'pending')}`} aria-hidden="true" />
-                      <div className="step-text">
-                        <div className="title">Frame Analysis Running</div>
-                        <div className="desc">Extracting and scanning frames</div>
-                      </div>
-                    </div>
-                    <div className={`divider ${it.status==='done' ? 'active' : ''}`} />
-                    <div className={`step ${it.status==='done' ? 'done' : ''}`}>
-                      <span className={`icon ${it.status==='done' ? 'check' : 'pending'}`} aria-hidden="true" />
-                      <div className="step-text">
-                        <div className="title">Forensics Check Passed</div>
-                        <div className="desc">Metadata and A/V consistency verified</div>
-                      </div>
-                    </div>
-                    <div className={`divider ${it.status==='done' ? 'active' : ''}`} />
-                    <div className={`step ${it.status==='done' ? ((it.result?.summary.deepfake_likelihood ?? 0) > 0.5 ? 'alert' : 'done') : ''}`}>
-                      <span className={`icon ${(it.result?.summary.deepfake_likelihood ?? 0) > 0.5 ? 'alert' : (it.status==='done' ? 'check' : 'pending')}`} aria-hidden="true" />
-                      <div className="step-text">
-                        <div className="title">{(it.result?.summary.deepfake_likelihood ?? 0) > 0.5 ? 'Manipulation Detected' : 'No Manipulation Detected'}</div>
-                        <div className="desc">{(it.result?.summary.deepfake_likelihood ?? 0) > 0.5 ? 'Suspicious regions or techniques identified' : 'No suspicious regions identified'}</div>
-                      </div>
-                    </div>
-                    <div className={`divider ${it.status==='done' ? 'active' : ''}`} />
-                    <div className={`step ${it.status==='done' ? 'done' : ''}`}>
-                      <span className={`icon ${it.status==='done' ? 'check' : 'pending'}`} aria-hidden="true" />
-                      <div className="step-text">
-                        <div className="title">Report Ready</div>
-                        <div className="desc">Download detailed forensic analysis report</div>
-                      </div>
-                    </div>
-                  </div>
-                  {it.result && (
-                    <div className="result-box">
-                      <h4>Analysis Summary</h4>
-                      <ul>
-                        <li>Resolution: {it.result.summary.width}x{it.result.summary.height}</li>
-                        <li>FPS: {it.result.summary.fps ?? '—'}</li>
-                        <li>Duration: {it.result.summary.duration_s ? it.result.summary.duration_s.toFixed(2) + 's' : '—'}</li>
-                        <li>Codec: {it.result.summary.codec || '—'}</li>
-                        <li>Format Valid: {String(it.result.summary.format_valid)}</li>
-                        <li>Decode Valid: {String(it.result.summary.decode_valid)}</li>
-                        <li>Deepfake Likelihood: {pct(it.result.summary.deepfake_likelihood)} ({it.result.summary.deepfake_label || 'n/a'})</li>
-                      </ul>
-                      <details>
-                        <summary>Raw JSON</summary>
-                        <pre>{JSON.stringify(it.result, null, 2)}</pre>
-                      </details>
                     </div>
                   )}
+                  {/* Detailed summary removed from upload view; now available on Reports page */}
                   {it.error && <div className="error-box">{it.error}</div>}
                 </div>
               </div>

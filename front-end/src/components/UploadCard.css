@@ -113,6 +113,15 @@ input.upload-hidden {
   display: flex;
   gap: 8px;
 }
+.file-actions.with-status { flex-wrap: wrap; align-items: center; }
+.status-badge { display:inline-flex; align-items:center; gap:6px; background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; padding:6px 10px; border-radius:20px; font-size:12px; font-weight:600; }
+.status-badge.push-right { margin-left:auto; }
+.status-badge .dot { width:8px; height:8px; background:#10b981; border-radius:50%; display:inline-block; }
+.details-toggle { font-size:12px; padding:8px 12px; }
+.progress-details { margin-top:12px; background:#f5f6fa; border:1px solid #e5e7eb; border-radius:10px; padding:12px 16px; }
+.progress-steps.compact .step { padding:8px 0; }
+.progress-steps.compact .step.done { background:transparent; padding:8px 0; }
+.progress-steps.compact .divider { margin:6px 0; }
 
 /* Multi-file list and item rows */
 .items-list { margin-top: 24px; display: flex; flex-direction: column; gap: 16px; text-align: left; }
@@ -123,7 +132,16 @@ input.upload-hidden {
 .items-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 .item-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid #eef0f6; border-radius: 10px; background: #fff; }
 .thumb { width: 80px; height: 80px; border-radius: 8px; object-fit: cover; border: 1px solid #eef2f7; background: #f9fafb; display: inline-flex; align-items: center; justify-content: center; }
-.thumb.placeholder { border-style: dashed; color: #9ca3af; font-size: 22px; }
+.thumb.placeholder { border-style:dashed; position:relative; }
+/* Paper sheet */
+/* Centered, slightly smaller sheet (was 40x52 at 10/12) */
+.thumb.placeholder::before { content:""; position:absolute; top:16px; left:22px; width:36px; height:48px; background:#ffffff; border:1px solid #d1d5db; border-radius:6px 6px 4px 4px; box-shadow:0 2px 4px rgba(0,0,0,0.05); }
+/* Folded corner */
+/* Adjust folded corner to new sheet position */
+.thumb.placeholder::after { content:""; position:absolute; top:16px; left:46px; width:12px; height:12px; background:linear-gradient(135deg,#f3f4f6 0%,#e5e7eb 100%); border:1px solid #d1d5db; border-left:none; border-bottom:none; border-radius:0 6px 0 4px; box-shadow:0 2px 3px rgba(0,0,0,0.04); }
+/* Faux text lines */
+/* Lines repositioned inside centered sheet */
+.thumb.placeholder .lines { position:absolute; top:30px; left:28px; width:24px; height:20px; background:repeating-linear-gradient(#e5e7eb 0 2px, transparent 2px 6px); opacity:.9; }
 .item-main { flex: 1 1 auto; }
 
 /* Step-style progress indicator */
@@ -218,5 +236,7 @@ input.upload-hidden {
 :root.dark .divider.active { background: var(--accent); }
 :root.dark .bar { background:#1e293b; }
 :root.dark .error-box { background:#43121b; border-color:#7f1d1d; color:#fecaca; }
+:root.dark .status-badge { background:#064e3b; border-color:#047857; color:#d1fae5; }
+:root.dark .progress-details { background:#1e293b; border-color: var(--border); }
 :root.dark .upload-header-actions .btn { background:#1f2937; }
 :root.dark .upload-header-actions .btn.primary { background: var(--accent); color: var(--accent-foreground); }
