@@ -2,26 +2,10 @@
 .ip-panel{background:#fff;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.15);padding:16px;min-width:320px;max-width:420px}
 .ip-title{margin:0 0 10px 0;font-size:16px}
 .ip-icons{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
-.ip-icon-btn{border:1px solid #e5e7eb;border-radius:8px;background:#fff;width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background .12s ease,border-color .12s ease,box-shadow .12s ease,transform .12s ease}
-.ip-icon-btn:hover{background:#f5f6fa;border-color:#e5e7eb}
-/* Stronger selected state for better visibility */
-.ip-icon-btn.selected{background:var(--accent-50);border-color:var(--accent);box-shadow:0 0 0 2px var(--accent),0 0 0 6px var(--focus-ring);}
-.ip-icon-btn.selected .ip-emoji{transform:scale(1.06)}
+.ip-icon-btn{border:1px solid #e5e7eb;border-radius:8px;background:#fff;width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.ip-icon-btn:hover{background:#f5f6fa}
+.ip-icon-btn.selected{box-shadow:0 0 0 3px rgba(59,130,246,.20)}
 .ip-emoji{font-size:22px}
 .ip-actions{display:flex;justify-content:flex-end;margin-top:12px}
 .ip-btn{border-radius:8px;border:1px solid #e5e7eb;padding:8px 12px;background:#fff;cursor:pointer}
 .ip-btn:hover{background:#f5f6fa}
-
-/* Dark mode: increase contrast for readability */
-:root.dark .ip-overlay{background:rgba(0,0,0,.45)}
-:root.dark .ip-panel{background:var(--panel); color:var(--text); border:1px solid var(--border); box-shadow:0 12px 28px rgba(0,0,0,.5)}
-:root.dark .ip-title{color:var(--text)}
-:root.dark .ip-icon-btn{background:#111827;border-color:#374151}
-:root.dark .ip-icon-btn:hover{background:#1f2937;border-color:#4b5563}
-:root.dark .ip-icon-btn .ip-emoji{color:var(--text)}
-:root.dark .ip-icon-btn.selected{background:var(--accent-200);border-color:var(--accent);box-shadow:0 0 0 2px var(--accent),0 0 0 6px var(--focus-ring)}
-:root.dark .ip-btn{background:#111827;border-color:#374151;color:var(--text)}
-:root.dark .ip-btn:hover{background:#1f2937;border-color:#4b5563}
-
-/* Accessible focus rings */
-.ip-icon-btn:focus-visible, .ip-btn:focus-visible{outline:none;box-shadow:0 0 0 3px var(--focus-ring)}

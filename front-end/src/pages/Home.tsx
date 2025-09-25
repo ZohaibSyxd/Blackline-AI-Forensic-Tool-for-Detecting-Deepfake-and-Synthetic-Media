@@ -9,7 +9,7 @@ const Home: React.FC = () => {
 					This is your forensic tool for detecting deepfake and synthetic media.
 				</p>
 				<div className="flex justify-center">
-									<button className="px-6 py-2 rounded transition btn-accent">
+					<button className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">
 						Get Started
 					</button>
 				</div>
