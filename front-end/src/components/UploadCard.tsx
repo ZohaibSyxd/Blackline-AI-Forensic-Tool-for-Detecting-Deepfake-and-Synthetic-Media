@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { persistFile, loadFile, removeFile as removePersistedFile } from '../utils/uploadPersistence';
 import "./UploadCard.css";
 
 const ACCEPT = ".jpg,.jpeg,.png,.gif,.mp4,.avi";
@@ -40,8 +41,10 @@ interface UploadItem {
 
 interface UploadCardProps { pageKey?: string }
 const STORAGE_PREFIX = 'bl_uploadItems_';
-// In-memory store to retain File objects across component unmounts during the same SPA session
-const memoryFilesByPage: Record<string, Record<string, File>> = {};
+// Versioned per-page storage (v3) so each analysis page retains its own uploads
+const STORAGE_VERSION = 'v3';
+// In-memory cache of File blobs keyed by composite (pageKey::itemId)
+const memoryFilesGlobal: Record<string, File> = {};
 
 const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   const [dragOver, setDragOver] = useState(false);
@@ -55,43 +58,40 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
 
   type SlimItem = Pick<UploadItem, 'id' | 'status' | 'progress' | 'preview' | 'result' | 'error'> & { fileName: string; fileType: string };
 
-  const storageKey = pageKey ? `${STORAGE_PREFIX}${pageKey}` : undefined;
+  const storageKey = pageKey ? `${STORAGE_PREFIX}${pageKey}_${STORAGE_VERSION}` : `${STORAGE_PREFIX}__global_${STORAGE_VERSION}`;
 
-  // initialize filesRef from in-memory store if available
+  // hydrate once per *page* (pageKey) from localStorage
   useEffect(() => {
-    if (!pageKey) return;
-    if (memoryFilesByPage[pageKey]) {
-      filesRef.current = { ...memoryFilesByPage[pageKey] };
-    }
-    // no cleanup: keep memoryFilesByPage so navigating away/back preserves File objects
-  }, [pageKey]);
+    (async () => {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        const slimArr: SlimItem[] = raw ? (JSON.parse(raw) as any) : [];
+        if (!Array.isArray(slimArr)) return;
+        const restored: UploadItem[] = await Promise.all(slimArr.map(async si => {
+          const compositeId = pageKey ? `${pageKey}::${si.id}` : si.id;
+            const file = memoryFilesGlobal[compositeId] || await loadFile(compositeId);
+            if (file) memoryFilesGlobal[compositeId] = file;
+            return {
+              id: si.id,
+              file: file || undefined,
+              name: si.fileName,
+              mime: si.fileType,
+              preview: si.preview || null,
+              status: si.status as ItemStatus,
+              progress: si.progress || 0,
+              result: si.result || null,
+              error: si.error || null,
+            } as UploadItem;
+        }));
+        // Map current page's files to local ref for quick access
+        filesRef.current = restored.reduce<Record<string, File | undefined>>((acc, it) => { if (it.file) acc[it.id] = it.file; return acc; }, {});
+        setItems(restored);
+      } catch {}
+    })();
+  }, [pageKey, storageKey]);
 
-  // hydrate from session storage when page changes
+  // persist to localStorage whenever items change
   useEffect(() => {
-    if (!storageKey) return;
-    try {
-      const raw = sessionStorage.getItem(storageKey);
-      if (!raw) return;
-      const parsed: SlimItem[] = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return;
-      const restored: UploadItem[] = parsed.map(si => ({
-        id: si.id,
-        file: filesRef.current[si.id] as any, // may be undefined until user reattaches
-        name: si.fileName,
-        mime: si.fileType,
-        preview: si.preview || null,
-        status: si.status as ItemStatus,
-        progress: si.progress || 0,
-        result: si.result || null,
-        error: si.error || null,
-      }));
-      setItems(restored);
-    } catch {}
-  }, [storageKey]);
-
-  // persist to session storage whenever items change
-  useEffect(() => {
-    if (!storageKey) return;
     try {
       const slim: SlimItem[] = items.map(it => ({
         id: it.id,
@@ -103,7 +103,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         result: it.result || null,
         error: it.error || null,
       }));
-      sessionStorage.setItem(storageKey, JSON.stringify(slim));
+      localStorage.setItem(storageKey, JSON.stringify(slim));
     } catch {}
   }, [items, storageKey]);
 
@@ -122,10 +122,9 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         const preview = f.type.startsWith('image/') ? URL.createObjectURL(f) : null;
         return { ...it, file: f, name: f.name, mime: f.type, preview, status: 'idle', progress: 0, result: null, error: null };
       }));
-      if (pageKey) {
-        memoryFilesByPage[pageKey] = memoryFilesByPage[pageKey] || {};
-        memoryFilesByPage[pageKey][replaceId] = f;
-      }
+      const composite = pageKey ? `${pageKey}::${replaceId}` : replaceId;
+      memoryFilesGlobal[composite] = f;
+      persistFile(composite, f);
       replaceTargetId.current = null;
       return;
     }
@@ -134,10 +133,9 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
       const preview = f.type.startsWith('image/') ? URL.createObjectURL(f) : null;
       const id = `${Date.now()}_${i}_${f.name}`;
       filesRef.current[id] = f;
-      if (pageKey) {
-        memoryFilesByPage[pageKey] = memoryFilesByPage[pageKey] || {};
-        memoryFilesByPage[pageKey][id] = f;
-      }
+      const composite = pageKey ? `${pageKey}::${id}` : id;
+      memoryFilesGlobal[composite] = f;
+      persistFile(composite, f);
       newItems.push({
         id,
         file: f,
@@ -171,9 +169,9 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
       const it = prev.find(x => x.id === id);
       if (it?.preview) URL.revokeObjectURL(it.preview);
       delete filesRef.current[id];
-      if (pageKey && memoryFilesByPage[pageKey]) {
-        delete memoryFilesByPage[pageKey][id];
-      }
+      const composite = pageKey ? `${pageKey}::${id}` : id;
+      delete memoryFilesGlobal[composite];
+      removePersistedFile(composite);
       return prev.filter(x => x.id !== id);
     });
   };
@@ -251,22 +249,24 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
       >
-        <h3>Upload Media for Analysis</h3>
-  <p className="muted">Drag & drop image or video here — you can select multiple files</p>
+        <div className="upload-header">
+          <div className="upload-header-text">
+            <h3>Upload Media for Analysis</h3>
+            <p className="muted">Drag & drop image or video here — you can select multiple files</p>
+          </div>
+          <div className="upload-header-actions">
+            <button className="btn" onClick={handleBrowse}>Upload More</button>
+            <button className="btn primary" onClick={analyzeAllSequential} disabled={items.length===0}>Analyze All</button>
+          </div>
+        </div>
 
         {items.length === 0 ? (
-          <>
-            <button className="btn" onClick={handleBrowse}>Click to browse files</button>
-            <div className="accept-text">(Supported formats: JPEG, PNG, GIF, MP4, AVI)</div>
-          </>
+          <div className="empty-hint">No files yet. Use <strong>Upload More</strong> or drag & drop.</div>
         ) : (
           <div className="items-list">
-            <div className="list-actions">
-              <button className="btn" onClick={handleBrowse}>Add more</button>
-              <button className="btn primary" onClick={analyzeAllSequential} disabled={items.length===0}>Analyze All</button>
-            </div>
+            <div className="items-scroll" role="list" aria-label="Uploaded files list">
             {items.map(it => (
-              <div key={it.id} className="item-row">
+              <div key={it.id} className="item-row" role="listitem">
                 {it.preview ? <img className="thumb" src={it.preview} alt={it.file ? it.file.name : (it.name || 'Uploaded file')} /> : <div className="thumb placeholder" aria-hidden>📄</div>}
                 <div className="item-main">
                   <div className="file-name">{it.file ? it.file.name : (it.name || 'File')}</div>
@@ -343,6 +343,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
                 </div>
               </div>
             ))}
+            </div>
           </div>
         )}
 
