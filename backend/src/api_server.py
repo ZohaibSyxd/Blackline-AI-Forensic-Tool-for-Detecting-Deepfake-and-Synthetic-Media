@@ -25,7 +25,7 @@ Run:
 from __future__ import annotations
 import os, uuid, shutil
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -35,6 +35,7 @@ from .probe_media import probe_asset
 from .validate_media import validate_asset
 from .utils import summarize_ffprobe
 from .models.df_detector import predict_deepfake
+from .auth import handle_login, handle_signup, get_current_user, to_public, SignupRequest
 
 DATA_ROOT = Path("backend/data")
 RAW_ROOT = DATA_ROOT / "raw"
@@ -60,6 +61,20 @@ class AnalyzeResponse(BaseModel):
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+# ------------------------- Auth Endpoints (Prototype) -----------------------
+@app.post("/api/auth/login")
+def login(token = Depends(handle_login)):
+    # handle_login returns Token model instance
+    return token
+
+@app.post("/api/auth/signup")
+def signup(req: SignupRequest):
+    return handle_signup(req)
+
+@app.get("/api/auth/me")
+def me(user = Depends(get_current_user)):
+    return {"user": to_public(user).dict()}
 
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 async def analyze(file: UploadFile = File(...)):

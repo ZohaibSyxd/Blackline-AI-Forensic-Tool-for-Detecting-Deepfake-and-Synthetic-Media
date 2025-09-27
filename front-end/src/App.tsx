@@ -7,11 +7,16 @@ import FileAnalysis from "./pages/FileAnalysis";
 import Reports from "./pages/Reports";
 import SectionHeader from "./components/SectionHeader";
 import React, { useEffect, useState } from "react";
+import { refreshUser, subscribe as authSubscribe, getAuthState } from './state/authStore';
 import NewAnalysisModal from "./components/NewAnalysisModal";
 
 
 const App: React.FC = () => {
-	const STORAGE = {
+	// Auth state subscription (so we can scope pages per user)
+	const [auth, setAuth] = useState(getAuthState());
+	useEffect(() => { const unsub = authSubscribe(setAuth); return () => { unsub(); }; }, []);
+
+	const STORAGE_BASE = {
 		pages: 'bl_pages',
 		page: 'bl_page',
 		last: 'bl_lastFilePage',
@@ -26,36 +31,57 @@ const App: React.FC = () => {
 		{ key: 'file$', label: 'FILE ANALYSIS $' },
 	];
 
-	const loadPages = (): { key: string; label: string; icon?: string }[] => {
+	function userNamespace() { return auth.user ? `u_${auth.user.username}` : 'guest'; }
+	function keyFor(base: keyof typeof STORAGE_BASE) { return `${STORAGE_BASE[base]}_${userNamespace()}`; }
+
+	const loadPages = (ns?: string): { key: string; label: string; icon?: string }[] => {
+		const namespace = ns || userNamespace();
 		try {
-			const raw = localStorage.getItem(STORAGE.pages);
+			// backward compatibility for pre-namespaced guest data
+			const storageKey = `${STORAGE_BASE.pages}_${namespace}`;
+			let raw = localStorage.getItem(storageKey);
+			if (!raw && namespace === 'guest') raw = localStorage.getItem(STORAGE_BASE.pages); // legacy
 			if (!raw) return defaultPages;
 			const parsed = JSON.parse(raw);
 			if (!Array.isArray(parsed)) return defaultPages;
 			const cleaned = parsed.filter((p: any) => p && typeof p.key === 'string' && typeof p.label === 'string')
 								  .map((p: any) => ({ key: p.key, label: p.label, icon: p.icon }));
-			// ensure dashboard exists at index 0
 			const hasDash = cleaned.some(p => p.key === 'dashboard');
 			const withoutDash = cleaned.filter(p => p.key !== 'dashboard');
 			return [{ key: 'dashboard', label: 'HOME PAGE' }, ...(hasDash ? withoutDash : withoutDash)];
 		} catch { return defaultPages; }
 	};
 
-	const [pages, setPages] = useState<{ key: string; label: string; icon?: string }[]>(() => loadPages());
-	const [page, setPage] = useState<string>(() => localStorage.getItem(STORAGE.page) || 'dashboard');
-	const [lastFilePage, setLastFilePage] = useState<string>(() => localStorage.getItem(STORAGE.last) || 'file1');
-	const [fileCount, setFileCount] = useState<number>(() => {
-		const raw = localStorage.getItem(STORAGE.count);
-		const n = raw ? parseInt(raw, 10) : 4;
-		return Number.isFinite(n) && n > 0 ? n : 4;
-	});
+	// Core page state (initialized empty, then hydrated in effect below)
+	const [pages, setPages] = useState<{ key: string; label: string; icon?: string }[]>(defaultPages);
+	const [page, setPage] = useState<string>('dashboard');
+	const [lastFilePage, setLastFilePage] = useState<string>('file1');
+	const [fileCount, setFileCount] = useState<number>(4);
+
+	// Hydrate (or switch) when user changes
+	useEffect(() => {
+		const ns = userNamespace();
+		const loadedPages = loadPages(ns);
+		setPages(loadedPages);
+		const savedPage = localStorage.getItem(keyFor('page')) || 'dashboard';
+		// Ensure saved page exists for this user
+		setPage(loadedPages.some(p => p.key === savedPage) ? savedPage : 'dashboard');
+		const savedLast = localStorage.getItem(keyFor('last')) || 'file1';
+		setLastFilePage(savedLast);
+		const rawCount = localStorage.getItem(keyFor('count'));
+		const n = rawCount ? parseInt(rawCount, 10) : 4;
+		setFileCount(Number.isFinite(n) && n > 0 ? n : 4);
+	}, [auth.user]);
 	const [isNewModalOpen, setIsNewModalOpen] = useState<boolean>(false);
 
+	// Restore auth session (if token present) on first mount
+	useEffect(() => { try { refreshUser(); } catch {} }, []);
+
 	// Persist to localStorage when these values change
-	useEffect(() => { try { localStorage.setItem(STORAGE.pages, JSON.stringify(pages)); } catch {} }, [pages]);
-	useEffect(() => { try { localStorage.setItem(STORAGE.page, page); } catch {} }, [page]);
-	useEffect(() => { try { localStorage.setItem(STORAGE.last, lastFilePage); } catch {} }, [lastFilePage]);
-	useEffect(() => { try { localStorage.setItem(STORAGE.count, String(fileCount)); } catch {} }, [fileCount]);
+	useEffect(() => { try { localStorage.setItem(keyFor('pages'), JSON.stringify(pages)); } catch {} }, [pages, auth.user]);
+	useEffect(() => { try { localStorage.setItem(keyFor('page'), page); } catch {} }, [page, auth.user]);
+	useEffect(() => { try { localStorage.setItem(keyFor('last'), lastFilePage); } catch {} }, [lastFilePage, auth.user]);
+	useEffect(() => { try { localStorage.setItem(keyFor('count'), String(fileCount)); } catch {} }, [fileCount, auth.user]);
 
 	// If current page no longer exists (e.g., deleted), fall back to dashboard
 	useEffect(() => {
