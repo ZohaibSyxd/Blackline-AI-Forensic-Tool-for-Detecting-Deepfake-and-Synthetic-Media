@@ -24,7 +24,7 @@ interface AnalysisSummary {
   };
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8010";
 
 type ItemStatus = 'idle' | 'uploading' | 'uploaded' | 'analyzing' | 'done' | 'error';
 

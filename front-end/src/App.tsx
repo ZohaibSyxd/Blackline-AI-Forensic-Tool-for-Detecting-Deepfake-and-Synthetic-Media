@@ -7,6 +7,7 @@ import FileAnalysis from "./pages/FileAnalysis";
 import Reports from "./pages/Reports";
 import SectionHeader from "./components/SectionHeader";
 import React, { useEffect, useState } from "react";
+import { refreshUser } from './state/authStore';
 import NewAnalysisModal from "./components/NewAnalysisModal";
 
 
@@ -50,6 +51,9 @@ const App: React.FC = () => {
 		return Number.isFinite(n) && n > 0 ? n : 4;
 	});
 	const [isNewModalOpen, setIsNewModalOpen] = useState<boolean>(false);
+
+	// Restore auth session (if token present) on first mount
+	useEffect(() => { try { refreshUser(); } catch {} }, []);
 
 	// Persist to localStorage when these values change
 	useEffect(() => { try { localStorage.setItem(STORAGE.pages, JSON.stringify(pages)); } catch {} }, [pages]);

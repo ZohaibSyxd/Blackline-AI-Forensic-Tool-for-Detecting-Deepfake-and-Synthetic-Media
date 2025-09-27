@@ -34,3 +34,14 @@
 :root.dark .pm-btn { background:#1e293b; border-color:#1e293b; }
 :root.dark .pm-btn:hover { background:#24324a; }
 :root.dark .pm-btn.primary { box-shadow:0 6px 16px -4px rgba(8,145,178,0.55); }
+
+/* Auth form additions */
+.auth-toggle { display:flex; gap:8px; margin:0 0 16px 0; }
+.pm-btn.small { padding:6px 12px; font-size:13px; }
+.pm-auth-form { display:flex; flex-direction:column; gap:12px; }
+.pm-field { display:flex; flex-direction:column; gap:4px; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; }
+.pm-field input { padding:10px 12px; border-radius:8px; border:1px solid #d5dbe3; font-size:14px; font-weight:500; background:#fff; }
+.pm-field input:focus { outline:2px solid #6366f1; outline-offset:1px; }
+.pm-error { background:#fee2e2; color:#991b1b; padding:8px 10px; border-radius:8px; font-size:13px; font-weight:500; }
+:root.dark .pm-field input { background:#0f172a; border-color:#1e293b; color:#e2e8f0; }
+:root.dark .pm-error { background:#4c1d1d; color:#fecaca; }
