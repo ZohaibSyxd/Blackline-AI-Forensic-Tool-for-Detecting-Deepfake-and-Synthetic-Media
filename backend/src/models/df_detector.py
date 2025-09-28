@@ -5,14 +5,14 @@ This provides a placeholder likelihood score so the front-end can display a
 later (e.g., frame sampling + CNN/transformer inference).
 
 Design choices for the stub:
-- Deterministic pseudo-score based on SHA-256 (stable across runs for same file)
-- Produces fields: {"score": float 0..1, "label": "real"|"fake", "method": "stub-hash"}
+Deterministic pseudo-score based on SHA-256 (stable across runs for same file)
+Produces fields: {"score": float 0..1, "label": "real"|"fake", "method": "stub-hash"}
 
 To extend:
-- Load model weights globally (module import time)
-- Add a predict(video_path: Path) -> dict that performs frame extraction & inference
+Load model weights globally (module import time)
+Add a predict(video_path: Path) -> dict that performs frame extraction & inference
 """
-from __future__ import annotations
+from future import annotations
 import hashlib
 from pathlib import Path
 from typing import Dict
