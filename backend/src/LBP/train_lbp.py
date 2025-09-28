@@ -7,7 +7,7 @@ Input is manifest.csv (built by build_manifest.py), which must contain:
 - asset_id
 - lbp (JSON stringified histogram list)
 - label (REAL/FAKE)
-- label_num (1 for REAL, 0 for FAKE)
+- label_num (1 for REAL,0 for FAKE)
 
 We parse the LBP vectors, split into train/val, fit a classifier, and save
 the trained model to disk.

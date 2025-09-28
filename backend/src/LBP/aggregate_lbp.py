@@ -2,7 +2,7 @@
 src/aggregate_lbp.py
 
 Aggregate per-frame LBP histograms into per-video features for downstream
-classification. Input is JSONL written by lbp_features.py (one row per frame).
+classification. Input is json written by lbp_features.py (one row per frame).
 
 Usage (PowerShell)
         python .\src\LBP\aggregate_lbp.py \

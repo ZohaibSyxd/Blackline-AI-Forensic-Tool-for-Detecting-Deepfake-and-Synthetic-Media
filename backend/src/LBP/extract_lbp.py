@@ -24,7 +24,7 @@ Notes
 - Output is JSONL: one row per frame, keyed by asset_id/shot/frame_index with
   the LBP histogram as a feature vector.
 - These features can be aggregated later at the shot- or video-level and fed
-  into classifiers (e.g., SVM, logistic regression, or neural nets).
+  into classifiers (e.g., SVM, logistic regression and/or neural nets).
 """
 
 import argparse

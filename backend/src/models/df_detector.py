@@ -12,7 +12,7 @@ To extend:
 Load model weights globally (module import time)
 Add a predict(video_path: Path) -> dict that performs frame extraction & inference
 """
-from future import annotations
+from __future__ import annotations
 import hashlib
 from pathlib import Path
 from typing import Dict
