@@ -21,6 +21,16 @@ interface AnalysisSummary {
     deepfake_likelihood?: number;
     deepfake_label?: string;
     deepfake_method?: string;
+    // Copy-move specific fields (optional)
+    cm_confidence?: number;
+    cm_coverage_ratio?: number;
+    cm_shift_magnitude?: number;
+    cm_num_keypoints?: number;
+    cm_num_matches?: number;
+    overlay_uri?: string;
+    // LBP specific (optional)
+    lbp_frames?: number;
+    lbp_dim?: number;
   };
 }
 
@@ -51,6 +61,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   const [dragOver, setDragOver] = useState(false);
   const [items, setItems] = useState<UploadItem[]>([]);
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const [model, setModel] = useState<string>('stub');
   const inputRef = useRef<HTMLInputElement | null>(null);
   const replaceRef = useRef<HTMLInputElement | null>(null);
   const replaceTargetId = useRef<string | null>(null);
@@ -262,15 +273,27 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
       return;
     }
     try {
-      const form = new FormData();
+  const form = new FormData();
       form.append('file', file);
+  form.append('model', model);
+  const jobId = `${id}-${Math.random().toString(36).slice(2,8)}`;
+  form.append('job_id', jobId);
       const xhr = new XMLHttpRequest();
+      xhr.timeout = 10 * 60 * 1000; // 10 minutes
       await new Promise<void>((resolve, reject) => {
         xhr.upload.onprogress = (ev) => {
           if (ev.lengthComputable) {
             const pct = Math.round((ev.loaded / ev.total) * 100);
             setItems(prev => prev.map(it => it.id === id ? { ...it, progress: pct } : it));
+            if (pct >= 100) {
+              // Switch to analyzing as soon as upload finishes from client side
+              setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing' } : it));
+            }
           }
+        };
+        xhr.upload.onload = () => {
+          // Upload complete; move to analyzing while waiting for server processing/headers
+          setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', progress: 100 } : it));
         };
         xhr.onloadstart = () => {
           setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'uploading' } : it));
@@ -280,6 +303,9 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
           if (xhr.readyState === 2 || xhr.readyState === 3) {
             setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing' } : it));
           }
+        };
+        xhr.ontimeout = () => {
+          reject(new Error('Request timed out. The server is taking too long to process the file.'));
         };
         xhr.onerror = () => reject(new Error('Network error'));
         xhr.onload = () => {
@@ -311,6 +337,27 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         xhr.open('POST', `${API_BASE}/api/analyze`);
         xhr.send(form);
       });
+      // Poll server-side progress until item is done or error
+      let stopped = false;
+      const stop = () => { stopped = true; };
+      const poll = async () => {
+        while (!stopped) {
+          try {
+            const resp = await fetch(`${API_BASE}/api/progress/${jobId}`, { cache: 'no-cache' });
+            if (resp.ok) {
+              const j = await resp.json();
+              const p = Math.max(0, Math.min(100, typeof j.percent === 'number' ? j.percent : 0));
+              const stage = j.stage || '';
+              setItems(prev => prev.map(it => it.id === id ? { ...it, status: (it.status==='done'||it.status==='error') ? it.status : (stage==='done' ? 'done' : 'analyzing'), progress: Math.max(it.progress, Math.round(p)) } : it));
+              if (stage === 'done') break;
+            }
+          } catch {}
+          await new Promise(r => setTimeout(r, 800));
+        }
+      };
+      poll();
+      // Ensure we stop polling when analysis completes or errors
+      setTimeout(stop, 10*60*1000);
     } catch (e: any) {
       setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'error', error: e.message || String(e) } : it));
     }
@@ -344,6 +391,17 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
             <p className="muted">Drag & drop image or video here — you can select multiple files</p>
           </div>
           <div className="upload-header-actions">
+            <select
+              aria-label="Select analysis model"
+              className="btn"
+              value={model}
+              onChange={(e)=>setModel(e.target.value)}
+              title="Choose which technique to run"
+            >
+              <option value="stub">Hash Stub (baseline)</option>
+              <option value="copy_move">Copy-Move (ORB)</option>
+              <option value="lbp">LBP (trained)</option>
+            </select>
             <button className="btn" onClick={handleBrowse}>Upload More</button>
             <button className="btn primary" onClick={analyzeAllSequential} disabled={items.length===0}>Analyze All</button>
           </div>
@@ -428,6 +486,40 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
                           </div>
                         </div>
                       </div>
+                      {it.result?.summary && (
+                        <div className="result-box result-box-spaced">
+                          <h4>Summary</h4>
+                          <ul>
+                            <li>Likelihood: {pct(it.result.summary.deepfake_likelihood)}</li>
+                            {typeof it.result.summary.cm_confidence === 'number' ? (
+                              <>
+                                <li>Copy-Move confidence: {(it.result.summary.cm_confidence*100).toFixed(1)}%</li>
+                                <li>Coverage: {((it.result.summary.cm_coverage_ratio ?? 0)*100).toFixed(2)}%</li>
+                                <li>Shift magnitude: {it.result.summary.cm_shift_magnitude?.toFixed(1)} px</li>
+                              </>
+                            ): null}
+                            {it.result.summary.deepfake_method ? <li>Method: {it.result.summary.deepfake_method}</li> : null}
+                            {typeof it.result.summary.lbp_frames === 'number' ? (
+                              <>
+                                <li>LBP frames used: {it.result.summary.lbp_frames}</li>
+                                <li>LBP feature dimension: {it.result.summary.lbp_dim}</li>
+                              </>
+                            ) : null}
+                          </ul>
+                          {it.result.summary.overlay_uri ? (
+                            <details>
+                              <summary>View overlay</summary>
+                              <div className="overlay-img-wrap">
+                                <img
+                                  src={`${API_BASE.replace(/\/$/, '')}/static/${String(it.result.summary.overlay_uri).replace(/^\/+/, '')}`}
+                                  alt="Copy-move overlay"
+                                  className="overlay-img"
+                                />
+                              </div>
+                            </details>
+                          ) : null}
+                        </div>
+                      )}
                     </div>
                   )}
                   {/* Detailed summary removed from upload view; now available on Reports page */}

@@ -195,10 +195,14 @@ input.upload-hidden {
   border-radius: 8px;
   font-size: 14px;
 }
+.result-box-spaced { margin-top: 12px; }
 .result-box h4 { margin: 0 0 8px 0; }
 .result-box ul { margin: 0 0 8px 16px; padding: 0; }
 .result-box summary { cursor: pointer; font-weight: 600; }
 .result-box pre { background:#fff; border:1px solid #e5e7eb; padding:8px; border-radius:6px; max-height:240px; overflow:auto; }
+
+.overlay-img-wrap { margin-top: 8px; }
+.overlay-img { max-width: 100%; border-radius: 8px; border: 1px solid #e5e7eb; }
 
 .error-box {
   margin-top: 16px;
