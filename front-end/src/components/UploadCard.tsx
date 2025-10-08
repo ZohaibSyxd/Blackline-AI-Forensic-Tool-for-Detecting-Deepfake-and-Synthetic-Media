@@ -67,6 +67,10 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   const replaceTargetId = useRef<string | null>(null);
   // keep Files in-memory (not persisted), keyed by item id
   const filesRef = useRef<Record<string, File | undefined>>({});
+  // analysis start timestamps per item (ms since epoch)
+  const analyzeStartAtRef = useRef<Record<string, number>>({});
+  // tick to force re-render for elapsed timer
+  const [tick, setTick] = useState(0);
   const [undoBuf, setUndoBuf] = useState<{ item: UploadItem; file?: File; index: number } | null>(null);
   const undoTimerRef = useRef<number | null>(null);
 
@@ -77,6 +81,12 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         undoTimerRef.current = null;
       }
     };
+  }, []);
+
+  // timer interval for elapsed time while analyzing
+  useEffect(() => {
+    const iv = window.setInterval(() => setTick(t => t + 1), 500);
+    return () => window.clearInterval(iv);
   }, []);
 
   // Cross-page sync: when Reports deletes analyses, remove corresponding uploads here
@@ -287,12 +297,14 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
             setItems(prev => prev.map(it => it.id === id ? { ...it, progress: pct } : it));
             if (pct >= 100) {
               // Switch to analyzing as soon as upload finishes from client side
+              if (!analyzeStartAtRef.current[id]) analyzeStartAtRef.current[id] = Date.now();
               setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing' } : it));
             }
           }
         };
         xhr.upload.onload = () => {
           // Upload complete; move to analyzing while waiting for server processing/headers
+          if (!analyzeStartAtRef.current[id]) analyzeStartAtRef.current[id] = Date.now();
           setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', progress: 100 } : it));
         };
         xhr.onloadstart = () => {
@@ -301,6 +313,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         xhr.onreadystatechange = () => {
           // When upload finishes but before response ready, mark analyzing
           if (xhr.readyState === 2 || xhr.readyState === 3) {
+            if (!analyzeStartAtRef.current[id]) analyzeStartAtRef.current[id] = Date.now();
             setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing' } : it));
           }
         };
@@ -348,6 +361,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
               const j = await resp.json();
               const p = Math.max(0, Math.min(100, typeof j.percent === 'number' ? j.percent : 0));
               const stage = j.stage || '';
+              if (stage && stage !== 'done' && !analyzeStartAtRef.current[id]) analyzeStartAtRef.current[id] = Date.now();
               setItems(prev => prev.map(it => it.id === id ? { ...it, status: (it.status==='done'||it.status==='error') ? it.status : (stage==='done' ? 'done' : 'analyzing'), progress: Math.max(it.progress, Math.round(p)) } : it));
               if (stage === 'done') break;
             }
@@ -375,6 +389,14 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   function toggleExpand(id: string) { setExpanded(prev => ({ ...prev, [id]: !prev[id] })); }
   function pct(v?: number) { if (v === undefined || v === null) return '—'; return (v * 100).toFixed(1) + '%'; }
+  function pctInt(v?: number) { if (v === undefined || v === null) return 0; return Math.min(100, Math.max(0, Math.round(v))); }
+  function fmtElapsed(ms?: number) {
+    if (!ms || ms < 0) return '0:00';
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  }
 
   return (
     <>
@@ -430,6 +452,22 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
                 )}
                 <div className="item-main">
                   <div className="file-name">{it.file ? it.file.name : (it.name || 'File')}</div>
+                  {(it.status==='uploading' || it.status==='analyzing') && (
+                    <div className={`status-line progress-p${Math.round((pctInt(it.progress))/5)*5}`} aria-live="polite">
+                      <div className="bar" aria-label="Analysis progress"><div className="bar-fill" /></div>
+                      <div className="status-text">
+                        <span className="muted">{it.status==='uploading' ? 'Uploading' : 'Analyzing'}</span>
+                        <span className="sep">·</span>
+                        <span className="muted">{pctInt(it.progress)}%</span>
+                        {analyzeStartAtRef.current[it.id] ? (
+                          <>
+                            <span className="sep">·</span>
+                            <span className="muted">{fmtElapsed(Date.now() - analyzeStartAtRef.current[it.id])}</span>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
                   <div className="file-actions with-status">
                     <button className="btn" onClick={() => handleReplace(it.id)} disabled={it.status==='uploading'||it.status==='analyzing'}>Replace</button>
                     <button className="btn ghost" onClick={() => removeItem(it.id)} disabled={it.status==='uploading'||it.status==='analyzing'}>Remove</button>
