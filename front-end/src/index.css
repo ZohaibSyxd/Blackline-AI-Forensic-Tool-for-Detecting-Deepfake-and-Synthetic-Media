@@ -37,3 +37,47 @@
 :root.dark .shadow-md, :root.dark .shadow { box-shadow: 0 10px 24px rgba(0,0,0,0.45) !important; }
 :root.dark .border, :root.dark .border-gray-200 { border-color: var(--border) !important; }
 
+/*
+  Global accent system
+  - Define a single accent that all components can reference for active/selected/focus states
+  - Use rgb tuple so we can easily create alpha variants via rgba(var(--accent-rgb), <alpha>)
+*/
+:root {
+  /* Accent set to #3D5A80 */
+  --accent-rgb: 61, 90, 128;
+  --accent: rgb(var(--accent-rgb));
+  --accent-foreground: #ffffff;
+  --focus-ring: rgba(var(--accent-rgb), 0.20);
+  --accent-50: rgba(var(--accent-rgb), 0.06);
+  --accent-100: rgba(var(--accent-rgb), 0.12);
+  --accent-200: rgba(var(--accent-rgb), 0.18);
+  --accent-300: rgba(var(--accent-rgb), 0.28);
+}
+
+/* If you want a different accent in dark mode, override --accent-rgb here. Keeping consistent by default. */
+:root.dark { --accent-rgb: 123, 147, 178; /* lighter variant for dark mode (not used while forcing light) */ }
+
+/* Text selection highlight */
+::selection { background: rgba(var(--accent-rgb), 0.18); color: #0b1020; }
+::-moz-selection { background: rgba(var(--accent-rgb), 0.18); color: #0b1020; }
+:root.dark ::selection { background: var(--accent-100); color: #ffffff; }
+:root.dark ::-moz-selection { background: var(--accent-100); color: #ffffff; }
+
+/* Small utilities using the accent */
+.btn-accent {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  border: none;
+}
+.btn-accent:hover { 
+  /* darken slightly on hover */
+  filter: brightness(0.94);
+}
+.btn-accent:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.underline-accent { text-decoration: underline; text-decoration-color: var(--accent); }
+.focus-ring { box-shadow: 0 0 0 3px var(--focus-ring) !important; }
+

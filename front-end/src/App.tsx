@@ -109,7 +109,7 @@ const App: React.FC = () => {
 		// navigate to the new file page
 		navigate(newKey);
 	};
-
+//basic
 		const deletePage = (key: string) => {
 			setPages((p) => p.filter((x) => x.key !== key));
 			// if the deleted page was the lastFilePage, clear lastFilePage to a default
@@ -176,7 +176,7 @@ const App: React.FC = () => {
 			pageLabel = m ? `FILE ANALYSIS ${m[1]}` : "FILE ANALYSIS";
 		}
 
-	content = <FileAnalysis label={pageLabel} onNavigate={navigate} currentPage={page} />;
+	content = <FileAnalysis key={page} label={pageLabel} onNavigate={navigate} currentPage={page} />;
 	} else {
 		content = <Home />;
 	}

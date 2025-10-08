@@ -45,11 +45,10 @@ export function watchSystemTheme(callback: () => void) {
 }
 
 export function initTheme() {
-  const current = getStoredTheme();
-  applyTheme(current);
-  let dispose: (() => void) | undefined;
-  if (current === 'system') {
-    dispose = watchSystemTheme(() => applyTheme('system'));
-  }
-  return { mode: current, dispose };
+  // Force light mode only — ignore stored setting and system preference
+  const forced: ThemeMode = 'light';
+  applyTheme(forced);
+  try { storeTheme(forced); } catch {}
+  const dispose = undefined; // no watcher needed when forcing light
+  return { mode: forced, dispose };
 }

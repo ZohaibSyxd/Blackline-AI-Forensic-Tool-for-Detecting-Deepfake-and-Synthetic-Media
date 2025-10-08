@@ -18,14 +18,31 @@
 .nm-title { margin: 0 0 12px 0; font-size: 18px; font-weight: 700; }
 .nm-label { margin-top: 8px; font-size: 13px; color: #374151; }
 .nm-input { width: 100%; padding: 10px 12px; margin-top: 6px; border-radius: 8px; border: 1px solid #e6eef6; }
+.nm-input::placeholder { color: #9aa3b2; }
+:root.dark .nm-input:focus, .nm-input:focus, .nm-input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
+:root.dark .nm-input { background: #0b1220; border-color: #374151; color: var(--text); }
+:root.dark .nm-input { background: #0b1220; border-color: #374151; color: var(--text); }
+:root.dark .nm-input::placeholder { color: #6b7280; }
+
+.nm-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #dc2626; /* red */
+  text-align: center;
+}
+:root.dark .nm-error { color: #dc2626; }
+
+/* Error state styles (applied via .error class on input) */
+.nm-input.error { border-color: #ef4444 !important; box-shadow: 0 0 0 3px rgba(239,68,68,0.20) !important; }
+.nm-input.error::placeholder { color: #ef4444; opacity: 1; }
 .nm-icons { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .nm-icon-wrap { display: inline-flex; }
 .nm-radio { position: absolute; opacity: 0; pointer-events: none; }
 .nm-icon-btn { padding: 8px 10px; border-radius: 8px; border: 1px solid transparent; background: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
-.nm-icon-btn.selected { background: #eef2ff; border-color: #c7d2fe; }
+.nm-icon-btn.selected { background: var(--accent-50); border-color: var(--accent-100); }
 .nm-emoji { font-size: 18px; }
 .nm-actions { display:flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .nm-btn { padding: 8px 12px; border-radius: 8px; cursor: pointer; }
-.nm-btn-primary { background: #1f6feb; color: white; border: none; }
+.nm-btn-primary { background: var(--accent); color: var(--accent-foreground); border: none; }
 .nm-btn-secondary { background: #f3f4f6; border: none; }
 @keyframes nm-fade { from { transform: translateY(-6px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }

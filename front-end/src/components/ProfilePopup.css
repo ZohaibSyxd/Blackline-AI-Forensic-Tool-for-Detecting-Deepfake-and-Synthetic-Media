@@ -1,43 +1,35 @@
-.profile-popup {
-  width: 240px;
-  background: #fff;
-  color: #111827;
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
-  padding: 12px;
-  position: absolute;
-  left: 16px;
-  bottom: 64px;
-  z-index: 60;
-  font-size: 13px;
-}
+.profile-popup { width:260px; background:#ffffff; color:#111827; border-radius:14px; box-shadow:0 12px 36px -6px rgba(15,23,42,0.18),0 4px 10px rgba(15,23,42,0.08); padding:16px 18px 18px; position:absolute; left:16px; bottom:64px; z-index:60; font-size:13px; border:1px solid #eef2f7; -webkit-backdrop-filter:saturate(180%) blur(6px); backdrop-filter:saturate(180%) blur(6px); }
 
-.pp-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-.pp-avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  background: linear-gradient(135deg,#6366f1,#8b5cf6);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-}
+.pp-row { display:flex; gap:12px; align-items:center; }
+.pp-avatar { width:52px; height:52px; border-radius:14px; background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:20px; box-shadow:0 4px 10px rgba(99,102,241,0.45); }
 .pp-info { display:flex; flex-direction:column; }
 .pp-name { font-weight:600; color:#0f172a; }
 .pp-email { color:#6b7280; font-size:12px; }
 
-.pp-badge-wrap { margin-top:8px; display:flex; }
-.pp-badge { font-size:12px; padding:6px 8px; border-radius:999px; display:inline-block; }
-.pp-badge.guest { background:#eef2ff; color:#4f46e5; }
-.pp-badge.premium { background:linear-gradient(90deg,#fde68a,#fca5a5); color:#7c2d12; }
+.pp-badge-wrap { margin-top:10px; display:flex; }
+.pp-badge { font-size:11px; padding:5px 10px; border-radius:999px; display:inline-flex; align-items:center; font-weight:600; letter-spacing:.04em; text-transform:uppercase; }
+.pp-badge.guest { background:#eef2ff; color:#4f46e5; border:1px solid #dbe4ff; }
+.pp-badge.premium { background:linear-gradient(90deg,#fde68a,#fca5a5); color:#7c2d12; box-shadow:0 0 0 1px rgba(124,45,18,0.25) inset; }
 
-.pp-actions { margin-top:10px; display:flex; flex-direction:column; gap:8px; }
-.pp-btn { background:#111827; color:white; border-radius:6px; padding:8px 10px; border:0; cursor:pointer; font-weight:600; }
-.pp-btn.ghost { background:transparent; color:#374151; border:1px solid #e5e7eb; }
-.pp-btn.pp-upgrade { background:linear-gradient(90deg,#06b6d4,#8b5cf6); }
+.pp-actions { margin-top:16px; display:flex; flex-direction:column; gap:10px; position:relative; }
+.pp-actions::before { content:""; position:absolute; top:-12px; left:-18px; right:-18px; height:1px; background:linear-gradient(90deg,#f1f5f9,#e2e8f0,#f1f5f9); }
+.pp-btn { background:#0f172a; color:#fff; border-radius:8px; padding:10px 12px; border:1px solid #0f172a; cursor:pointer; font-weight:600; font-size:13px; line-height:1.1; display:flex; align-items:center; justify-content:center; gap:6px; transition:background .18s, box-shadow .18s, transform .18s, border-color .18s; }
+.pp-btn:hover { background:#1e293b; }
+.pp-btn:active { transform:translateY(1px); }
+.pp-btn:focus-visible { outline:3px solid #6366f1; outline-offset:2px; }
+.pp-btn.ghost { background:#ffffff; color:#374151; border:1px solid #e5e7eb; }
+.pp-btn.ghost:hover { background:#f8fafc; }
+.pp-btn.danger { background:#fee2e2; color:#b91c1c; border:1px solid #fecaca; }
+.pp-btn.danger:hover { background:#fecaca; }
+
+/* Dark mode */
+:root.dark .profile-popup { background:#0f172a; color:var(--text); border-color:#1e293b; box-shadow:0 14px 40px -6px rgba(0,0,0,0.65),0 4px 12px rgba(0,0,0,0.4); }
+:root.dark .pp-name { color:var(--text); }
+:root.dark .pp-email { color:var(--muted); }
+:root.dark .pp-badge.guest { background:#312e81; color:#c7d2fe; border-color:#4338ca; }
+:root.dark .pp-badge.premium { color:#fff; }
+:root.dark .pp-btn { background:#1e293b; border-color:#1e293b; }
+:root.dark .pp-btn:hover { background:#24324a; }
+:root.dark .pp-btn.ghost { background:#142033; color:var(--text); border-color:#2a3b55; }
+:root.dark .pp-btn.ghost:hover { background:#1e293b; }
+:root.dark .pp-actions::before { background:linear-gradient(90deg,#1e293b,#24324a,#1e293b); }
