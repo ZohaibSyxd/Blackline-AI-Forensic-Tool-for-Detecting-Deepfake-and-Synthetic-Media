@@ -48,13 +48,13 @@ python -m backend.src.sample_frames `
   --clips-root .\backend\data\derived\clips
 
 # 6) Normalize frames & compute quality metrics (Step 5 of code guide)
-# Standardize to 224x224, compute blur/brightness/pHash, optional face crops
+# Standardize to 299x299, compute blur/brightness/pHash, optional face crops
 python -m backend.src.normalize_frames `
   --frames       .\backend\data\derived\frames.jsonl `
   --frames-root  .\backend\data\derived\frames `
   --out          .\backend\data\derived\frames_normalized.jsonl `
   --normalized-root .\backend\data\derived\normalized `
-  --target-size 224 `
+  --target-size 299 `
   --extract-faces
 
 # 7) Build manifest CSV (labels + probe/validate summaries)
@@ -104,6 +104,11 @@ python -m backend.src.models.ela_detector.eval_ela `
   --agg median `
   --metric ela_error_mean `
   --out .\backend\data\derived\ela_eval_cv.json
+
+# 10) XceptionNet (timm) — per-frame scoring + optional shot aggregation
+# (Optional) Provide deepfake-trained weights:
+#   --checkpoint path\to\deepfake_xception.pth
+# ...existing code...
 
 # 10) Copy-Move detection over normalized frames (NOT USING ANYMORE!!!!!!)
 # Quick test: limit to first 200 frames

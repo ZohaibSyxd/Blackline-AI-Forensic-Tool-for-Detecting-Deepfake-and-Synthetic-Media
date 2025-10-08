@@ -11,3 +11,4 @@ mediapipe
 facenet-pytorch
 scenedetect
 Pillow
+timm

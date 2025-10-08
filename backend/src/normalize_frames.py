@@ -3,7 +3,7 @@ Step 5: Normalization & basic quality signals
 
 What it does:
 - Reads frames from sample_frames.py output
-- Normalizes frames to standard size/colorspace (224x224, RGB)
+- Normalizes frames to standard size/colorspace (299x299, RGB)
 - Computes quality metrics: blur, brightness, pHash
 - Caches face crops for face-centric models (optional)
 - Outputs enhanced JSONL with quality metrics
@@ -14,11 +14,11 @@ Usage (PowerShell):
         --frames-root .\backend\data\derived\frames `
         --out .\backend\data\derived\frames_normalized.jsonl `
         --normalized-root .\backend\data\derived\normalized `
-        --target-size 224 `
+        --target-size 299 `
         --extract-faces
 
 Outputs:
-  - Normalized frames: normalized/<sha>/<shot>/<frame>.jpg (224x224 RGB)
+  - Normalized frames: normalized/<sha>/<shot>/<frame>.jpg (299x299 RGB)
   - Face crops: faces/<sha>/<shot>/<frame>_face_<idx>.jpg (optional)
   - Enhanced JSONL with quality metrics:
     {
@@ -33,7 +33,7 @@ Outputs:
       },
       "normalization": {
         "original_size": [1920, 1080],
-        "normalized_size": [224, 224],
+        "normalized_size": [299, 299],
         "colorspace": "RGB"
       }
     }
@@ -89,7 +89,7 @@ def compute_phash(image: Image.Image) -> Optional[str]:
     return str(_phash(image))
 
 
-def normalize_frame(image_path: Path, target_size: int = 224) -> Tuple[Image.Image, Dict[str, Any]]:
+def normalize_frame(image_path: Path, target_size: int = 299) -> Tuple[Image.Image, Dict[str, Any]]:
     """Normalize a single frame to target_size×target_size RGB, EXIF-aware."""
     img = Image.open(image_path)
     # Respect EXIF orientation (common for phone footage)
@@ -141,7 +141,7 @@ def process_single_frame(
     frame_data: Dict[str, Any],
     frames_root: Path,
     normalized_root: Path,
-    target_size: int = 224,
+    target_size: int = 299,
     extract_faces: bool = False,
     faces_root: Optional[Path] = None,
 ) -> Optional[Dict[str, Any]]:
@@ -224,7 +224,7 @@ def main():
     ap.add_argument("--frames-root", default="backend/data/derived/frames", help="Root folder containing frames")
     ap.add_argument("--out", default="backend/data/derived/frames_normalized.jsonl", help="Output JSONL")
     ap.add_argument("--normalized-root", default="backend/data/derived/normalized", help="Folder for normalized frames")
-    ap.add_argument("--target-size", type=int, default=224, help="Target size (square)")
+    ap.add_argument("--target-size", type=int, default=299, help="Target size (square)")
     ap.add_argument("--extract-faces", action="store_true", help="Extract and save face crops")
     ap.add_argument("--faces-root", default="backend/data/derived/faces", help="Folder for face crops")
     ap.add_argument("--limit", type=int, default=None, help="Process at most N frames")
