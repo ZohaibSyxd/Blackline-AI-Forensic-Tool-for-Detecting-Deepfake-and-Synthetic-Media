@@ -77,6 +77,25 @@ const App: React.FC = () => {
 	// Restore auth session (if token present) on first mount
 	useEffect(() => { try { refreshUser(); } catch {} }, []);
 
+	// Global navigation listener so components (e.g., UploadCard) can request page changes
+	useEffect(() => {
+		function onNav(ev: Event) {
+			try {
+				const ce = ev as CustomEvent<{ page: string; filePage?: string }>;
+				const target = ce.detail?.page;
+				if (!target) return;
+				if (target.startsWith('file')) {
+					setLastFilePage(target);
+					setPage(target);
+				} else if (target === 'reports') {
+					setPage('reports');
+				}
+			} catch {}
+		}
+		window.addEventListener('bl:navigate', onNav as EventListener);
+		return () => { window.removeEventListener('bl:navigate', onNav as EventListener); };
+	}, []);
+
 	// Persist to localStorage when these values change
 	useEffect(() => { try { localStorage.setItem(keyFor('pages'), JSON.stringify(pages)); } catch {} }, [pages, auth.user]);
 	useEffect(() => { try { localStorage.setItem(keyFor('page'), page); } catch {} }, [page, auth.user]);

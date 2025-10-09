@@ -1,3 +1,4 @@
 .page-content {
-  padding: 32px;
+  /* tighter padding so the content starts closer to the header */
+  padding: 16px 24px 8px 24px;
 }

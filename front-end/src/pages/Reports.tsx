@@ -3,6 +3,8 @@ import "./Reports.css";
 import { getAnalysesForPage, getAllAnalyses, StoredAnalysisSummary, deleteAnalyses, upsertAnalysis } from '../state/analysisStore';
 import { removeFile as removePersistedFile } from '../utils/uploadPersistence';
 
+const API_BASE = (import.meta as any).env?.VITE_API_BASE || "http://localhost:8010";
+
 const labelFor = (filePage?: string) => {
   if (!filePage) return "FILE ANALYSIS";
   if (filePage === "file1") return "FILE ANALYSIS 1";
@@ -10,6 +12,78 @@ const labelFor = (filePage?: string) => {
   if (filePage === "file3") return "FILE ANALYSIS 3";
   if (filePage === "file$") return "FILE ANALYSIS $";
   return "FILE ANALYSIS";
+};
+
+// ---------- Tiny Viz Components (no external deps) ----------
+const Sparkline: React.FC<{ values: number[]; width?: number; height?: number; color?: string }>
+  = ({ values, width = 260, height = 64, color = 'var(--accent)' }) => {
+  if (!values.length) return <div className="sparkline-space" />;
+  const w = width, h = height;
+  const max = Math.max(0.0001, Math.max(...values));
+  const points = values.map((v, i) => {
+    const x = (i / Math.max(1, values.length - 1)) * (w - 4) + 2;
+    const y = h - 4 - (v / max) * (h - 8);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return (
+    <svg className="sparkline" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-label="Trend sparkline">
+      <polyline fill="none" stroke={color} strokeWidth="2" points={points} />
+    </svg>
+  );
+};
+
+const HistogramBars: React.FC<{ bins: number[]; max?: number }>
+  = ({ bins, max }) => {
+  const m = max ?? Math.max(1, ...bins);
+  return (
+    <div className="bar-chart" role="img" aria-label="Likelihood distribution">
+      {bins.map((c, i) => {
+        const pct = Math.max(0, Math.min(100, Math.round((c / m) * 100)));
+        const hClass = 'h' + (Math.round(pct/5)*5);
+        return (
+          <div key={i} className="bar-item" title={`${i*10}-${(i+1)*10}%: ${c}`}>
+            <div className="bar-col">
+              <div className={`bar ${hClass}`} />
+            </div>
+            <div className="bar-x">{i*10}</div>
+          </div>
+        );
+      })}
+      <div className="bar-x end">100</div>
+    </div>
+  );
+};
+
+const DonutChart: React.FC<{ data: Array<{ label: string; value: number }>; size?: number }>
+  = ({ data, size = 160 }) => {
+  const total = data.reduce((s,d)=>s+d.value,0) || 1;
+  const radius = (size/2) - 10;
+  const cx = size/2, cy = size/2;
+  const circ = 2 * Math.PI * radius;
+  let acc = 0;
+  const palette = ['#3D5A80','#10B981','#4F46E5','#8B5CF6','#F43F5E','#F59E0B','#64748B','#0EA5E9'];
+  return (
+    <div className="donut-wrap">
+      <svg className="donut" width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="Models used">
+        <circle cx={cx} cy={cy} r={radius} fill="none" stroke="#e5e7eb" strokeWidth="14" />
+        {data.map((d, i) => {
+          const len = (d.value/total) * circ;
+          const dasharray = `${len} ${circ-len}`;
+          const dashoffset = circ - acc;
+          const stroke = palette[i % palette.length];
+          acc += len;
+          return (
+            <circle key={d.label} cx={cx} cy={cy} r={radius} fill="none" stroke={stroke} strokeWidth="14" strokeDasharray={dasharray} strokeDashoffset={dashoffset} />
+          );
+        })}
+      </svg>
+      <div className="donut-legend">
+        {data.map((d,i)=> (
+          <div className="legend-row" key={d.label}><span className={`legend-dot color-${i%8}`} />{d.label}<span className="legend-val">{d.value}</span></div>
+        ))}
+      </div>
+    </div>
+  );
 };
 
 const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
@@ -166,7 +240,22 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
     const avgLikelihood = analyses.reduce((s,a)=> s + (a.summary.deepfake_likelihood || 0),0)/total;
     const maxLikelihood = analyses.reduce((m,a)=> Math.max(m, a.summary.deepfake_likelihood||0),0);
     const suspicious = analyses.filter(a => (a.summary.deepfake_likelihood||0) > 0.5).length;
-    return { total, avgLikelihood, maxLikelihood, suspicious };
+    // histogram (0..100 step 10)
+    const hist = new Array(10).fill(0) as number[];
+    analyses.forEach(a => {
+      const v = Math.max(0, Math.min(0.9999, a.summary.deepfake_likelihood || 0));
+      const b = Math.floor(v*10);
+      hist[b] += 1;
+    });
+    // models used
+    const modelMap: Record<string, number> = {};
+    analyses.forEach(a => {
+      const m = a.summary.deepfake_method || 'unknown';
+      modelMap[m] = (modelMap[m]||0)+1;
+    });
+    // sparkline series by time
+    const series = [...analyses].sort((a,b)=> a.analyzedAt - b.analyzedAt).map(a=> a.summary.deepfake_likelihood || 0);
+    return { total, avgLikelihood, maxLikelihood, suspicious, hist, modelMap, series };
   }, [analyses]);
 
   // Apply sorting whenever list or sort state changes
@@ -222,12 +311,28 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
         </div>
 
         {aggregate && (
-          <div className="report-stats">
-            <div className="stat"><div className="label">Analyses</div><div className="value">{aggregate.total}</div></div>
-            <div className="stat"><div className="label">Avg Likelihood</div><div className="value">{(aggregate.avgLikelihood*100).toFixed(1)}%</div></div>
-            <div className="stat"><div className="label">Max Likelihood</div><div className="value">{(aggregate.maxLikelihood*100).toFixed(1)}%</div></div>
-            <div className="stat"><div className="label">Flagged (&gt;50%)</div><div className="value">{aggregate.suspicious}</div></div>
-          </div>
+          <>
+            <div className="report-stats">
+              <div className="stat"><div className="label">Analyses</div><div className="value">{aggregate.total}</div></div>
+              <div className="stat"><div className="label">Avg Likelihood</div><div className="value">{(aggregate.avgLikelihood*100).toFixed(1)}%</div></div>
+              <div className="stat"><div className="label">Max Likelihood</div><div className="value">{(aggregate.maxLikelihood*100).toFixed(1)}%</div></div>
+              <div className="stat"><div className="label">Flagged (&gt;50%)</div><div className="value">{aggregate.suspicious}</div></div>
+            </div>
+            <div className="viz-grid">
+              <div className="viz-card">
+                <div className="viz-title">Likelihood Trend</div>
+                <Sparkline values={aggregate.series} />
+              </div>
+              <div className="viz-card">
+                <div className="viz-title">Likelihood Distribution</div>
+                <HistogramBars bins={aggregate.hist} />
+              </div>
+              <div className="viz-card">
+                <div className="viz-title">Models Used</div>
+                <DonutChart data={Object.entries(aggregate.modelMap).map(([label,value])=>({label, value}))} />
+              </div>
+            </div>
+          </>
         )}
 
         {!analyses.length && (
@@ -304,6 +409,17 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                   <div><span className="k">Deepfake %</span><span className="v">{((selected.summary.deepfake_likelihood||0)*100).toFixed(2)}%</span></div>
                   <div><span className="k">Label</span><span className="v">{selected.summary.deepfake_label || '—'}</span></div>
                 </div>
+                { (selected.summary as any)?.overlay_uri ? (
+                  <details className="overlay-block" open>
+                    <summary>Overlay</summary>
+                    <div className="overlay-preview">
+                      <img
+                        src={`${String(API_BASE).replace(/\/$/, '')}/static/${String(((selected.summary as any).overlay_uri || '')).replace(/^\/+/, '')}`}
+                        alt="Model overlay"
+                      />
+                    </div>
+                  </details>
+                ) : null}
                 {selected.raw && (
                   <details className="raw-block">
                     <summary>Raw JSON</summary>

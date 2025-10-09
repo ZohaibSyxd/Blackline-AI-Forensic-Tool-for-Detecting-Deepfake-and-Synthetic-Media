@@ -36,7 +36,7 @@ interface AnalysisSummary {
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8010";
 
-type ItemStatus = 'idle' | 'uploading' | 'uploaded' | 'analyzing' | 'done' | 'error';
+type ItemStatus = 'idle' | 'uploading' | 'uploaded' | 'analyzing' | 'done' | 'error' | 'canceled';
 
 interface UploadItem {
   id: string;
@@ -46,6 +46,9 @@ interface UploadItem {
   preview: string | null;
   status: ItemStatus;
   progress: number; // 0-100
+  jobId?: string;
+  xhr?: XMLHttpRequest; // in-flight request for cancel
+  analyzeStartAt?: number; // persisted start time for timer
   stage?: string; // backend-reported stage key
   stageMsg?: string | null; // backend-reported human message
   result?: AnalysisSummary | null;
@@ -69,12 +72,13 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   const replaceTargetId = useRef<string | null>(null);
   // keep Files in-memory (not persisted), keyed by item id
   const filesRef = useRef<Record<string, File | undefined>>({});
-  // analysis start timestamps per item (ms since epoch)
-  const analyzeStartAtRef = useRef<Record<string, number>>({});
+  // per-item poll stop functions (to stop progress polling on cancel)
+  const pollStopsRef = useRef<Record<string, () => void>>({});
   // tick to force re-render for elapsed timer
   const [tick, setTick] = useState(0);
   const [undoBuf, setUndoBuf] = useState<{ item: UploadItem; file?: File; index: number } | null>(null);
   const undoTimerRef = useRef<number | null>(null);
+  const [doneToast, setDoneToast] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     return () => {
@@ -90,6 +94,66 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
     const iv = window.setInterval(() => setTick(t => t + 1), 500);
     return () => window.clearInterval(iv);
   }, []);
+
+  // remember last used model
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('bl_lastModel');
+      if (saved) setModel(saved);
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem('bl_lastModel', model); } catch {}
+  }, [model]);
+
+  // stop any active polls on unmount to avoid background loops
+  useEffect(() => {
+    return () => {
+      try {
+        const stops = Object.values(pollStopsRef.current || {});
+        stops.forEach((fn) => { try { fn(); } catch {} });
+        pollStopsRef.current = {};
+      } catch {}
+    };
+  }, []);
+
+  // helper: start progress polling for a job id if not already polling
+  function startProgressPolling(id: string, jobId: string) {
+    if (!jobId) return;
+    if (pollStopsRef.current[id]) return; // already polling
+    let stopped = false;
+    const stop = () => { stopped = true; };
+    pollStopsRef.current[id] = stop;
+    const poll = async () => {
+      while (!stopped) {
+        try {
+          const resp = await fetch(`${API_BASE}/api/progress/${jobId}`, { cache: 'no-cache' });
+          if (resp.ok) {
+            const j = await resp.json();
+            const p = Math.max(0, Math.min(100, typeof j.percent === 'number' ? j.percent : 0));
+            const stage = j.stage || '';
+            const message = typeof j.message === 'string' ? j.message : '';
+            setItems(prev => prev.map(it => it.id === id ? { ...it, status: (it.status==='done'||it.status==='error'||it.status==='canceled') ? it.status : (stage==='done' ? 'done' : 'analyzing'), progress: Math.max(it.progress, Math.round(p)), stage, stageMsg: message || it.stageMsg, analyzeStartAt: it.analyzeStartAt || (stage && stage !== 'done' ? Date.now() : it.analyzeStartAt) } : it));
+            if (stage === 'done') { stop(); try { delete pollStopsRef.current[id]; } catch {}; break; }
+          }
+        } catch {}
+        await new Promise(r => setTimeout(r, 800));
+      }
+    };
+    poll();
+    // safety timeout: stop after 10 minutes
+    setTimeout(stop, 10*60*1000);
+  }
+
+  // When items are restored or tab is re-opened, reattach polling for in-progress jobs
+  useEffect(() => {
+    items.forEach(it => {
+      if ((it.status === 'analyzing' || it.status === 'uploading') && it.jobId) {
+        startProgressPolling(it.id, it.jobId);
+      }
+    });
+  }, [items]);
 
   // Cross-page sync: when Reports deletes analyses, remove corresponding uploads here
   useEffect(() => {
@@ -113,7 +177,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
     return () => { window.removeEventListener('bl:uploads-removed', onRemoved as EventListener); };
   }, [pageKey]);
 
-  type SlimItem = Pick<UploadItem, 'id' | 'status' | 'progress' | 'preview' | 'result' | 'error' | 'stage' | 'stageMsg'> & { fileName: string; fileType: string };
+  type SlimItem = Pick<UploadItem, 'id' | 'status' | 'progress' | 'preview' | 'result' | 'error' | 'stage' | 'stageMsg' | 'analyzeStartAt' | 'jobId'> & { fileName: string; fileType: string };
 
   const storageKey = pageKey ? `${STORAGE_PREFIX}${pageKey}_${STORAGE_VERSION}` : `${STORAGE_PREFIX}__global_${STORAGE_VERSION}`;
 
@@ -139,6 +203,8 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
               stage: (si as any).stage,
               stageMsg: (si as any).stageMsg || null,
               result: si.result || null,
+              analyzeStartAt: (si as any).analyzeStartAt || undefined,
+              jobId: (si as any).jobId || undefined,
               error: si.error || null,
             } as UploadItem;
         }));
@@ -161,6 +227,8 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         progress: it.progress,
         stage: it.stage,
         stageMsg: it.stageMsg || null,
+        analyzeStartAt: it.analyzeStartAt || undefined,
+        jobId: it.jobId || undefined,
         result: it.result || null,
         error: it.error || null,
       }));
@@ -219,6 +287,11 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   };
 
   const handleBrowse = () => inputRef.current?.click();
+
+  // helper: navigate app-wide via custom event
+  function navTo(page: string) {
+    try { window.dispatchEvent(new CustomEvent('bl:navigate', { detail: { page } })); } catch {}
+  }
 
   const handleReplace = (id: string) => {
     replaceTargetId.current = id;
@@ -296,6 +369,10 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   form.append('job_id', jobId);
       const xhr = new XMLHttpRequest();
       xhr.timeout = 10 * 60 * 1000; // 10 minutes
+      // store xhr and jobId so we can cancel later and resume timer across tabs
+      setItems(prev => prev.map(it => it.id === id ? { ...it, xhr, jobId } : it));
+      // Start polling server-side progress immediately so UI reflects server stages
+      startProgressPolling(id, jobId);
       await new Promise<void>((resolve, reject) => {
         xhr.upload.onprogress = (ev) => {
           if (ev.lengthComputable) {
@@ -303,15 +380,13 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
             setItems(prev => prev.map(it => it.id === id ? { ...it, progress: pct } : it));
             if (pct >= 100) {
               // Switch to analyzing as soon as upload finishes from client side
-              if (!analyzeStartAtRef.current[id]) analyzeStartAtRef.current[id] = Date.now();
-              setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', stage: 'processing', stageMsg: 'Processing on server' } : it));
+              setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', stage: 'processing', stageMsg: 'Processing on server', analyzeStartAt: it.analyzeStartAt || Date.now() } : it));
             }
           }
         };
         xhr.upload.onload = () => {
           // Upload complete; move to analyzing while waiting for server processing/headers
-          if (!analyzeStartAtRef.current[id]) analyzeStartAtRef.current[id] = Date.now();
-          setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', progress: 100, stage: 'processing', stageMsg: 'Processing on server' } : it));
+          setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', progress: 100, stage: 'processing', stageMsg: 'Processing on server', analyzeStartAt: it.analyzeStartAt || Date.now() } : it));
         };
         xhr.onloadstart = () => {
           setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'uploading' } : it));
@@ -319,19 +394,21 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         xhr.onreadystatechange = () => {
           // When upload finishes but before response ready, mark analyzing
           if (xhr.readyState === 2 || xhr.readyState === 3) {
-            if (!analyzeStartAtRef.current[id]) analyzeStartAtRef.current[id] = Date.now();
-            setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', stage: 'processing', stageMsg: 'Processing on server' } : it));
+            setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', stage: 'processing', stageMsg: 'Processing on server', analyzeStartAt: it.analyzeStartAt || Date.now() } : it));
           }
         };
         xhr.ontimeout = () => {
           reject(new Error('Request timed out. The server is taking too long to process the file.'));
         };
         xhr.onerror = () => reject(new Error('Network error'));
+        xhr.onabort = () => reject(new Error('canceled'));
         xhr.onload = () => {
           try {
             if (xhr.status >= 200 && xhr.status < 300) {
               const data = JSON.parse(xhr.responseText) as AnalysisSummary;
-              setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'done', progress: 100, stage: 'done', stageMsg: 'Completed', result: data, error: null } : it));
+              setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'done', progress: 100, stage: 'done', stageMsg: 'Completed', result: data, error: null, xhr: undefined } : it));
+              try { pollStopsRef.current[id]?.(); delete pollStopsRef.current[id]; } catch {}
+              try { setDoneToast({ id, name: file.name }); setTimeout(() => setDoneToast(null), 6000); } catch {}
               // Persist summary for reports page
               try {
                 const page = pageKey || 'global';
@@ -356,32 +433,24 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         xhr.open('POST', `${API_BASE}/api/analyze`);
         xhr.send(form);
       });
-      // Poll server-side progress until item is done or error
-      let stopped = false;
-      const stop = () => { stopped = true; };
-      const poll = async () => {
-        while (!stopped) {
-          try {
-            const resp = await fetch(`${API_BASE}/api/progress/${jobId}`, { cache: 'no-cache' });
-            if (resp.ok) {
-              const j = await resp.json();
-              const p = Math.max(0, Math.min(100, typeof j.percent === 'number' ? j.percent : 0));
-              const stage = j.stage || '';
-              const message = typeof j.message === 'string' ? j.message : '';
-              if (stage && stage !== 'done' && !analyzeStartAtRef.current[id]) analyzeStartAtRef.current[id] = Date.now();
-              setItems(prev => prev.map(it => it.id === id ? { ...it, status: (it.status==='done'||it.status==='error') ? it.status : (stage==='done' ? 'done' : 'analyzing'), progress: Math.max(it.progress, Math.round(p)), stage, stageMsg: message || it.stageMsg } : it));
-              if (stage === 'done') break;
-            }
-          } catch {}
-          await new Promise(r => setTimeout(r, 800));
-        }
-      };
-      poll();
-      // Ensure we stop polling when analysis completes or errors
-      setTimeout(stop, 10*60*1000);
+  // Ensure we stop polling when analysis completes or errors via the helper's timeout
     } catch (e: any) {
-      setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'error', error: e.message || String(e) } : it));
+      // stop polling and clear xhr on error
+      try { pollStopsRef.current[id]?.(); delete pollStopsRef.current[id]; } catch {}
+      setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'error', error: e.message || String(e), xhr: undefined } : it));
     }
+  }
+
+  function cancelItem(id: string) {
+    // abort in-flight request and stop polling
+    try {
+      const it = items.find(x => x.id === id);
+      if (it?.xhr) {
+        try { it.xhr.abort(); } catch {}
+      }
+    } catch {}
+    try { pollStopsRef.current[id]?.(); delete pollStopsRef.current[id]; } catch {}
+    setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'canceled', stage: 'canceled', stageMsg: 'Canceled by user', xhr: undefined, analyzeStartAt: undefined } : it));
   }
 
   async function analyzeAllSequential() {
@@ -478,10 +547,10 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
                             <span className="muted">{it.stageMsg}</span>
                           </>
                         ) : null}
-                        {analyzeStartAtRef.current[it.id] ? (
+                        {it.analyzeStartAt ? (
                           <>
                             <span className="sep">·</span>
-                            <span className="muted">{fmtElapsed(Date.now() - analyzeStartAtRef.current[it.id])}</span>
+                            <span className="muted">{fmtElapsed(Date.now() - it.analyzeStartAt)}</span>
                           </>
                         ) : null}
                       </div>
@@ -490,9 +559,23 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
                   <div className="file-actions with-status">
                     <button className="btn" onClick={() => handleReplace(it.id)} disabled={it.status==='uploading'||it.status==='analyzing'}>Replace</button>
                     <button className="btn ghost" onClick={() => removeItem(it.id)} disabled={it.status==='uploading'||it.status==='analyzing'}>Remove</button>
-                    <button className="btn primary" onClick={() => analyzeItem(it.id)} disabled={it.status==='uploading'||it.status==='analyzing'||!(filesRef.current[it.id]||it.file)} title={!(filesRef.current[it.id]||it.file) ? 'File not attached. Click Replace to reattach.' : undefined}>
-                      {it.status==='uploading' ? `Uploading ${it.progress}%` : (it.status==='analyzing' ? 'Analyzing…' : (it.status==='done' ? 'Re-run' : 'Analyze'))}
-                    </button>
+                    {it.status==='done' ? (
+                      <>
+                        <button className="btn" onClick={() => analyzeItem(it.id)}>
+                          Re-run
+                        </button>
+                        <button className="btn primary" onClick={() => navTo('reports')}>
+                          View Report
+                        </button>
+                      </>
+                    ) : (
+                      <button className="btn primary" onClick={() => analyzeItem(it.id)} disabled={it.status==='uploading'||it.status==='analyzing'||!(filesRef.current[it.id]||it.file)} title={!(filesRef.current[it.id]||it.file) ? 'File not attached. Click Replace to reattach.' : undefined}>
+                        {it.status==='uploading' ? `Uploading ${it.progress}%` : (it.status==='analyzing' ? 'Analyzing…' : 'Analyze')}
+                      </button>
+                    )}
+                    {(it.status==='uploading' || it.status==='analyzing') && (
+                      <button className="btn ghost" onClick={() => cancelItem(it.id)} title="Cancel this analysis">Cancel</button>
+                    )}
                     {(it.status==='analyzing' || it.status==='done' || it.status==='error') && (
                       <button
                         className="btn ghost details-toggle"
@@ -543,40 +626,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
                           </div>
                         </div>
                       </div>
-                      {it.result?.summary && (
-                        <div className="result-box result-box-spaced">
-                          <h4>Summary</h4>
-                          <ul>
-                            <li>Likelihood: {pct(it.result.summary.deepfake_likelihood)}</li>
-                            {typeof it.result.summary.cm_confidence === 'number' ? (
-                              <>
-                                <li>Copy-Move confidence: {(it.result.summary.cm_confidence*100).toFixed(1)}%</li>
-                                <li>Coverage: {((it.result.summary.cm_coverage_ratio ?? 0)*100).toFixed(2)}%</li>
-                                <li>Shift magnitude: {it.result.summary.cm_shift_magnitude?.toFixed(1)} px</li>
-                              </>
-                            ): null}
-                            {it.result.summary.deepfake_method ? <li>Method: {it.result.summary.deepfake_method}</li> : null}
-                            {typeof it.result.summary.lbp_frames === 'number' ? (
-                              <>
-                                <li>LBP frames used: {it.result.summary.lbp_frames}</li>
-                                <li>LBP feature dimension: {it.result.summary.lbp_dim}</li>
-                              </>
-                            ) : null}
-                          </ul>
-                          {it.result.summary.overlay_uri ? (
-                            <details>
-                              <summary>View overlay</summary>
-                              <div className="overlay-img-wrap">
-                                <img
-                                  src={`${API_BASE.replace(/\/$/, '')}/static/${String(it.result.summary.overlay_uri).replace(/^\/+/, '')}`}
-                                  alt="Copy-move overlay"
-                                  className="overlay-img"
-                                />
-                              </div>
-                            </details>
-                          ) : null}
-                        </div>
-                      )}
+                      {/* Summary box removed per request */}
                     </div>
                   )}
                   {/* Detailed summary removed from upload view; now available on Reports page */}
@@ -600,6 +650,12 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
       <div className="toast" role="status" aria-live="polite">
         <span>Removed {undoBuf.item.file?.name || undoBuf.item.name || 'file'}.</span>
         <button className="btn link" onClick={undoRemove}>Undo</button>
+      </div>
+    ) : null}
+    {doneToast ? (
+      <div className="toast" role="status" aria-live="polite">
+        <span>Analysis complete for {doneToast.name}.</span>
+        <button className="btn link" onClick={() => { setDoneToast(null); navTo('reports'); }}>View Report</button>
       </div>
     ) : null}
     </>

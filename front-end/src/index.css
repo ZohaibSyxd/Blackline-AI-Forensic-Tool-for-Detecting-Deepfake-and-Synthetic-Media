@@ -9,10 +9,11 @@
 .main-content {
   flex: 1 1 auto;
   min-height: 100vh;
+  min-height: 100dvh; /* align with sidebar dynamic viewport height */
   background: #ffffff; /* switched to white page area */
   color: #111827; /* dark text for readability */
   overflow: auto;
-  padding: 20px 28px;
+  padding: 18px 28px 20px; /* slightly reduced top/bottom to better align with sidebar */
   box-sizing: border-box;
 }
 
