@@ -43,8 +43,8 @@
   - Use rgb tuple so we can easily create alpha variants via rgba(var(--accent-rgb), <alpha>)
 */
 :root {
-  /* Accent set to #3D5A80 */
-  --accent-rgb: 61, 90, 128;
+  /* Accent color is driven by --accent-rgb (configurable in Settings) */
+  --accent-rgb: 61, 90, 128; /* default: Ocean */
   --accent: rgb(var(--accent-rgb));
   --accent-foreground: #ffffff;
   --focus-ring: rgba(var(--accent-rgb), 0.20);

@@ -46,6 +46,8 @@ interface UploadItem {
   preview: string | null;
   status: ItemStatus;
   progress: number; // 0-100
+  stage?: string; // backend-reported stage key
+  stageMsg?: string | null; // backend-reported human message
   result?: AnalysisSummary | null;
   error?: string | null;
 }
@@ -111,7 +113,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
     return () => { window.removeEventListener('bl:uploads-removed', onRemoved as EventListener); };
   }, [pageKey]);
 
-  type SlimItem = Pick<UploadItem, 'id' | 'status' | 'progress' | 'preview' | 'result' | 'error'> & { fileName: string; fileType: string };
+  type SlimItem = Pick<UploadItem, 'id' | 'status' | 'progress' | 'preview' | 'result' | 'error' | 'stage' | 'stageMsg'> & { fileName: string; fileType: string };
 
   const storageKey = pageKey ? `${STORAGE_PREFIX}${pageKey}_${STORAGE_VERSION}` : `${STORAGE_PREFIX}__global_${STORAGE_VERSION}`;
 
@@ -134,6 +136,8 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
               preview: si.preview || null,
               status: si.status as ItemStatus,
               progress: si.progress || 0,
+              stage: (si as any).stage,
+              stageMsg: (si as any).stageMsg || null,
               result: si.result || null,
               error: si.error || null,
             } as UploadItem;
@@ -155,6 +159,8 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         preview: it.preview,
         status: it.status,
         progress: it.progress,
+        stage: it.stage,
+        stageMsg: it.stageMsg || null,
         result: it.result || null,
         error: it.error || null,
       }));
@@ -274,7 +280,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   }
 
   async function analyzeItem(id: string) {
-    setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'uploading', progress: 0, error: null, result: null } : it));
+  setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'uploading', progress: 0, stage: 'uploading', stageMsg: 'Uploading file', error: null, result: null } : it));
     const item = items.find(it => it.id === id);
     if (!item) return;
     const file = filesRef.current[id] || item.file;
@@ -298,14 +304,14 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
             if (pct >= 100) {
               // Switch to analyzing as soon as upload finishes from client side
               if (!analyzeStartAtRef.current[id]) analyzeStartAtRef.current[id] = Date.now();
-              setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing' } : it));
+              setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', stage: 'processing', stageMsg: 'Processing on server' } : it));
             }
           }
         };
         xhr.upload.onload = () => {
           // Upload complete; move to analyzing while waiting for server processing/headers
           if (!analyzeStartAtRef.current[id]) analyzeStartAtRef.current[id] = Date.now();
-          setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', progress: 100 } : it));
+          setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', progress: 100, stage: 'processing', stageMsg: 'Processing on server' } : it));
         };
         xhr.onloadstart = () => {
           setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'uploading' } : it));
@@ -314,7 +320,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
           // When upload finishes but before response ready, mark analyzing
           if (xhr.readyState === 2 || xhr.readyState === 3) {
             if (!analyzeStartAtRef.current[id]) analyzeStartAtRef.current[id] = Date.now();
-            setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing' } : it));
+            setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', stage: 'processing', stageMsg: 'Processing on server' } : it));
           }
         };
         xhr.ontimeout = () => {
@@ -325,7 +331,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
           try {
             if (xhr.status >= 200 && xhr.status < 300) {
               const data = JSON.parse(xhr.responseText) as AnalysisSummary;
-              setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'done', progress: 100, result: data, error: null } : it));
+              setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'done', progress: 100, stage: 'done', stageMsg: 'Completed', result: data, error: null } : it));
               // Persist summary for reports page
               try {
                 const page = pageKey || 'global';
@@ -361,8 +367,9 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
               const j = await resp.json();
               const p = Math.max(0, Math.min(100, typeof j.percent === 'number' ? j.percent : 0));
               const stage = j.stage || '';
+              const message = typeof j.message === 'string' ? j.message : '';
               if (stage && stage !== 'done' && !analyzeStartAtRef.current[id]) analyzeStartAtRef.current[id] = Date.now();
-              setItems(prev => prev.map(it => it.id === id ? { ...it, status: (it.status==='done'||it.status==='error') ? it.status : (stage==='done' ? 'done' : 'analyzing'), progress: Math.max(it.progress, Math.round(p)) } : it));
+              setItems(prev => prev.map(it => it.id === id ? { ...it, status: (it.status==='done'||it.status==='error') ? it.status : (stage==='done' ? 'done' : 'analyzing'), progress: Math.max(it.progress, Math.round(p)), stage, stageMsg: message || it.stageMsg } : it));
               if (stage === 'done') break;
             }
           } catch {}
@@ -454,11 +461,23 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
                   <div className="file-name">{it.file ? it.file.name : (it.name || 'File')}</div>
                   {(it.status==='uploading' || it.status==='analyzing') && (
                     <div className={`status-line progress-p${Math.round((pctInt(it.progress))/5)*5}`} aria-live="polite">
-                      <div className="bar" aria-label="Analysis progress"><div className="bar-fill" /></div>
+                      <div
+                        className="bar"
+                        role="progressbar"
+                        aria-label="Analysis progress"
+                      >
+                        <div className="bar-fill" />
+                      </div>
                       <div className="status-text">
                         <span className="muted">{it.status==='uploading' ? 'Uploading' : 'Analyzing'}</span>
                         <span className="sep">·</span>
                         <span className="muted">{pctInt(it.progress)}%</span>
+                        {it.stageMsg ? (
+                          <>
+                            <span className="sep">·</span>
+                            <span className="muted">{it.stageMsg}</span>
+                          </>
+                        ) : null}
                         {analyzeStartAtRef.current[it.id] ? (
                           <>
                             <span className="sep">·</span>
