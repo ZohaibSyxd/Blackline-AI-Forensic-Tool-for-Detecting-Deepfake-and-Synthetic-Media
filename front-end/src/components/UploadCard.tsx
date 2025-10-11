@@ -464,6 +464,17 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   function toggleExpand(id: string) { setExpanded(prev => ({ ...prev, [id]: !prev[id] })); }
+  // Derive which items can show details (analyzing/done/error)
+  const detailEligibleIds = items.filter(it => (it.status === 'analyzing' || it.status === 'done' || it.status === 'error')).map(it => it.id);
+  const allEligibleExpanded = detailEligibleIds.length > 0 && detailEligibleIds.every(id => !!expanded[id]);
+  const toggleAllDetails = () => {
+    setExpanded(prev => {
+      const next: Record<string, boolean> = { ...prev };
+      const target = !allEligibleExpanded; // if all are expanded, collapse them; otherwise expand
+      detailEligibleIds.forEach(id => { next[id] = target; });
+      return next;
+    });
+  };
   function pct(v?: number) { if (v === undefined || v === null) return '—'; return (v * 100).toFixed(1) + '%'; }
   function pctInt(v?: number) { if (v === undefined || v === null) return 0; return Math.min(100, Math.max(0, Math.round(v))); }
   function fmtElapsed(ms?: number) {
@@ -501,6 +512,14 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
               <option value="lbp">LBP (trained)</option>
             </select>
             <button className="btn" onClick={handleBrowse}>Upload More</button>
+            <button
+              className="btn ghost"
+              onClick={toggleAllDetails}
+              disabled={detailEligibleIds.length === 0}
+              title={allEligibleExpanded ? 'Hide details for all items' : 'Show details for all items'}
+            >
+              {allEligibleExpanded ? 'Hide All Details' : 'Show All Details'}
+            </button>
             <button className="btn primary" onClick={analyzeAllSequential} disabled={items.length===0}>Analyze All</button>
           </div>
         </div>

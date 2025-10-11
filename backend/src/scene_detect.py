@@ -80,6 +80,18 @@ def detect_scenes_ffmpeg(path: Path, threshold: float) -> List[Tuple[float, floa
 def to_ms(x: float) -> int:
     return int(round(1000.0 * x))
 
+
+def _normalize_path_str(s: str | None) -> Path:
+    """Convert possibly Windows-style path strings to a proper Path on this OS.
+    - Replaces backslashes with forward slashes
+    - Strips surrounding quotes
+    Returns Path("") if s is falsy.
+    """
+    if not s:
+        return Path("")
+    s2 = s.strip().strip('"').strip("'").replace("\\", "/")
+    return Path(s2)
+
 def main():
     ap = argparse.ArgumentParser(description="Scene detection → shots.jsonl")
     ap.add_argument("--audit", default="backend/data/audit/ingest_log.jsonl")
@@ -97,7 +109,14 @@ def main():
     with open(out_path, "w", encoding="utf-8") as w:
         for rec in read_unique_assets(Path(args.audit)):
             store_root = rec.get("store_root")
-            in_path = Path(store_root, rec["stored_path"]) if store_root else Path(rec["stored_path"])
+            # Normalize potential Windows-style paths from audit log
+            root_path = _normalize_path_str(store_root) if store_root else None
+            stored_rel = _normalize_path_str(rec.get("stored_path"))
+            in_path = (root_path / stored_rel) if root_path else stored_rel
+            # Fallback to default expected raw root if not found
+            if not in_path.exists():
+                alt = Path("backend/data/raw") / stored_rel
+                in_path = alt if alt.exists() else in_path
             if not in_path.exists():
                 continue
             mime = (rec.get("mime") or "").lower()
