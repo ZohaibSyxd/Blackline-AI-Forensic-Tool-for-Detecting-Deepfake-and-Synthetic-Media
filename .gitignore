@@ -11,7 +11,9 @@ backend/data/derived/overlays/copy_move/
 
 data/audit/
 backend/data/derived/
-
+backend/data/audit
+backend/models/*.pth
+backend/models/*.pt
 
 .venv/
 __pycache__/

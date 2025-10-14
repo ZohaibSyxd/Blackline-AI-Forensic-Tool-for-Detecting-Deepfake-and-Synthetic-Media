@@ -1,5 +1,3 @@
-# Backend pipeline (Windows PowerShell) — copy/paste ready
-
 # 0) Activate venv (if not already)
 # python -m venv .venv
 # .\.venv\Scripts\Activate.ps1
@@ -28,7 +26,7 @@ python -m backend.src.scene_detect `
   --min-shot-ms 400
 
 # 5) Per-shot frame sampling (frames.jsonl + JPEGs)
-# Frames only (Lowered values for quick testing at the moment)
+# Frames only (lowered values for quick testing)
 python -m backend.src.sample_frames `
   --shots       .\backend\data\derived\shots.jsonl `
   --frames-out  .\backend\data\derived\frames.jsonl `
@@ -37,7 +35,7 @@ python -m backend.src.sample_frames `
   --jpeg-quality 85 `
   --limit 400
 
-# (Optional) Also extract clips per shot
+# (Optional) Also extract clips per shot (for clip-based models)
 python -m backend.src.sample_frames `
   --shots       .\backend\data\derived\shots.jsonl `
   --frames-out  .\backend\data\derived\frames.jsonl `
@@ -47,7 +45,13 @@ python -m backend.src.sample_frames `
   --extract-clips `
   --clips-root .\backend\data\derived\clips
 
-# 6) Normalize frames & compute quality metrics (Step 5 of code guide)
+# 5b) Build clips.jsonl from shots + extracted clips
+python -m backend.src.build_clips_jsonl `
+  --shots .\backend\data\derived\shots.jsonl `
+  --clips-root .\backend\data\derived\clips `
+  --out .\backend\data\derived\clips.jsonl
+
+# 6) Normalize frames & compute quality metrics
 # Standardize to 299x299, compute blur/brightness/pHash, optional face crops
 python -m backend.src.normalize_frames `
   --frames       .\backend\data\derived\frames.jsonl `
@@ -70,8 +74,7 @@ python -m backend.src.analyze_metadata `
   --probe .\backend\data\derived\probe.jsonl `
   --out   .\backend\data\derived\metadata_analysis.jsonl
 
-# 9) ELA (Error Level Analysis) over normalized frames
-# Quick test: limit to first 200 frames
+# 9) ELA (Error Level Analysis) over normalized frames (quick test)
 python -m backend.src.models.ela_detector.compute_ela `
   --frames   .\backend\data\derived\frames_normalized.jsonl `
   --root     .\backend\data\derived\normalized `
@@ -81,8 +84,7 @@ python -m backend.src.models.ela_detector.compute_ela `
   --scale 10 `
   --limit 200
 
-# 9a) ELA over sampled frames (raw, recommended for strongest signal)
-# Quick test: limit to first 200 frames
+# 9a) ELA over raw sampled frames (often stronger)
 python -m backend.src.models.ela_detector.compute_ela `
   --frames   .\backend\data\derived\frames.jsonl `
   --root     .\backend\data\derived\frames `
@@ -92,10 +94,7 @@ python -m backend.src.models.ela_detector.compute_ela `
   --scale 10 `
   --limit 200
 
-# Full ELA run (all frames, defaults ok)
-# python -m backend.src.models.ela_detector.compute_ela --jpeg-quality 85 --scale 10
-
-#9b) ELA analysis
+# 9b) ELA evaluation (CV on manifest labels)
 python -m backend.src.models.ela_detector.eval_ela `
   --ela      .\backend\data\derived\frames_ela_raw.jsonl `
   --manifest .\backend\data\derived\manifest.csv `
@@ -105,13 +104,7 @@ python -m backend.src.models.ela_detector.eval_ela `
   --metric ela_error_mean `
   --out .\backend\data\derived\ela_eval_cv.json
 
-# 10) XceptionNet (timm) — per-frame scoring + optional shot aggregation
-# (Optional) Provide deepfake-trained weights:
-#   --checkpoint path\to\deepfake_xception.pth
-# ...existing code...
-
-# 10) Copy-Move detection over normalized frames (NOT USING ANYMORE!!!!!!)
-# Quick test: limit to first 200 frames
+# 10) Copy-Move detection (deprecated in your note, kept for reference)
 python -m backend.src.models.compute_copy_move `
   --frames   .\backend\data\derived\frames_normalized.jsonl `
   --root     .\backend\data\derived\normalized `
@@ -119,11 +112,7 @@ python -m backend.src.models.compute_copy_move `
   --overlays .\backend\data\derived\overlays `
   --limit 200
 
-# Full Copy-Move run (all frames, defaults ok)
-# python -m backend.src.models.compute_copy_move
-
-# 11) Noise analysis over normalized frames
-# Quick test: limit to first 200 frames
+# 11) Noise analysis over normalized frames (quick test)
 python -m backend.src.models.compute_noise `
   --frames   .\backend\data\derived\frames_normalized.jsonl `
   --root     .\backend\data\derived\normalized `
@@ -131,20 +120,80 @@ python -m backend.src.models.compute_noise `
   --overlays .\backend\data\derived\overlays `
   --limit 200
 
-# Full Noise analysis run (all frames, defaults ok)
-# python .\backend\src\models\compute_noise.py
-
-# 12) Deepfake detection (currently stubbed)
-# Quick test: limit to first 50 frames
+# 12) Deepfake detection (stubbed hash model over frames)
 python -m backend.src.models.df_detector `
   --frames   .\backend\data\derived\frames_normalized.jsonl `
   --root     .\backend\data\derived\normalized `
   --out      .\backend\data\derived\frames_deepfake.jsonl `
   --limit 50
 
-# Full Deepfake detection run (all frames, defaults ok)
-# python -m backend.src.models.df_detector
-
 # 13) FastAPI server for web interface
-# Run the web API server (requires uvicorn)
 # uvicorn backend.src.api_server:app --reload --port 8000
+
+##### DEEP MODELS — INFERENCE & TRAINING #####
+
+# 14) Xception (timm) — per-frame inference (P(FAKE)), optional shot aggregation
+python -m backend.src.models.xception_infer `
+  --frames-jsonl .\backend\data\derived\frames_normalized.jsonl `
+  --root .\backend\data\derived `
+  --out .\backend\data\derived\xception_scores_frames.jsonl `
+  --checkpoint .\backend\models\xception_v1.pth `
+  --batch-size 32 --num-workers 0 `
+  --use-faces `
+  --aggregate-shot-out .\backend\data\derived\xception_scores_shots.jsonl
+
+# 15) Xception — training (fast fine-tune; saves best threshold in checkpoint meta)
+python -m backend.src.models.xception_train `
+  --frames-jsonl .\backend\data\derived\frames_normalized.jsonl `
+  --root .\backend\data\derived `
+  --manifest .\backend\data\derived\manifest.csv `
+  --id-col sha256 --label-col label_num `
+  --epochs 8 --batch-size 32 --lr-head 1e-3 --lr-backbone 3e-4 `
+  --out .\backend\models\xception_v1.pth `
+  --num-workers 4
+
+# 16) TimeSformer — per-clip inference (requires clips.jsonl from step 5b)
+python -m backend.src.models.timesformer_infer `
+  --clips .\backend\data\derived\clips.jsonl `
+  --clips-root .\backend\data\derived\clips `
+  --checkpoint .\backend\models\timesformer_v1.pt `
+  --config .\backend\models\timesformer_v1.config.json `
+  --out .\backend\data\derived\timesformer_scores.jsonl `
+  --frames 8 --size 224 --batch-size 2 --device auto
+
+# 17) TimeSformer — training (saves .pt + .config.json with threshold)
+python -m backend.src.models.timesformer_train `
+  --clips .\backend\data\derived\clips.jsonl `
+  --clips-root .\backend\data\derived\clips `
+  --manifest .\backend\data\derived\manifest.csv `
+  --out .\backend\models\timesformer_v1.pt `
+  --config .\backend\models\timesformer_v1.config.json `
+  --epochs 10 --batch-size 4 --frames 16 --size 224
+
+# 18) Fusion (blend) — grid-search α (Xception p95 + TimeSformer median)
+python -m backend.src.models.fuse_models `
+  --xception .\backend\data\derived\xception_scores_frames.jsonl `
+  --timesformer .\backend\data\derived\timesformer_scores.jsonl `
+  --manifest .\backend\data\derived\manifest.csv `
+  --agg-frame p95 --agg-clip median `
+  --learn-alpha `
+  --use-split --val-as-test `
+  --out .\backend\data\derived\fusion_predictions.jsonl
+
+# 19) Fusion (stacking) — Logistic Regression (+ optional calibration)
+python -m backend.src.models.fuse_models_lr `
+  --xception .\backend\data\derived\xception_scores_frames.jsonl `
+  --timesformer .\backend\data\derived\timesformer_scores.jsonl `
+  --manifest .\backend\data\derived\manifest.csv `
+  --agg-frame p95 --agg-clip median `
+  --C 1.0 --class-weight balanced --calibrate sigmoid `
+  --use-split --val-as-test `
+  --out .\backend\data\derived\fusion_predictions_lr.jsonl
+
+# 20) Evaluation — learn threshold on TRAIN, evaluate on TEST; save curves+JSON
+python -m backend.src.eval.eval_jsonl `
+  --preds .\backend\data\derived\fusion_predictions.jsonl `
+  --manifest .\backend\data\derived\manifest.csv `
+  --learn-threshold train --split test `
+  --plots-out-dir .\backend\data\derived\plots `
+  --out-metrics .\backend\data\derived\metrics_fusion.json
