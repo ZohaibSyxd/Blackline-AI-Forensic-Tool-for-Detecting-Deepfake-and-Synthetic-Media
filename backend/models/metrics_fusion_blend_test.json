@@ -1,0 +1,18 @@
+{
+  "split": "test",
+  "n_eval": 2412,
+  "threshold": 0.20035876676440234,
+  "threshold_source": "file(median)",
+  "accuracy": 0.8905472636815921,
+  "balanced_accuracy": 0.6596495656380807,
+  "precision_fake": 0.8987173816895179,
+  "recall_fake": 0.9830672472181906,
+  "specificity_real": 0.336231884057971,
+  "f1_fake": 0.9390018484288354,
+  "roc_auc": 0.8210372801020873,
+  "pr_auc_fake": 0.9591458559543081,
+  "tp": 2032,
+  "fp": 229,
+  "tn": 116,
+  "fn": 35
+}

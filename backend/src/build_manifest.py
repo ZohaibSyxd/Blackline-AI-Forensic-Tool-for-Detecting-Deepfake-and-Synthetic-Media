@@ -52,16 +52,15 @@ def norm_split(s):
     return s
 
 def norm_label(s):
-    """Normalize label values as uppercase strings (REAL/FAKE) by default.
-    """
+    """Normalize label to 'REAL'/'FAKE' (accepts strings or 0/1)."""
     if s is None:
         return ""
-    s = str(s).strip().lower()
-    if s in {"real","genuine","true","authentic"}:
+    txt = str(s).strip().lower()
+    if txt in {"real","genuine","true","1"}:
         return "REAL"
-    if s in {"fake","manipulated","deepfake","synthetic"}:
+    if txt in {"fake","manipulated","deepfake","synthetic","0"}:
         return "FAKE"
-    return s.upper()
+    return txt.upper()
 
 def label_to_num(label: str):
     """Map label strings to numeric codes: REAL->1, FAKE->0, else empty string."""
