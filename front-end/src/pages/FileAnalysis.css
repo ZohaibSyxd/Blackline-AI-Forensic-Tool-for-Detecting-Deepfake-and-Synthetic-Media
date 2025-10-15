@@ -13,6 +13,16 @@
   line-height: 1.1;
   letter-spacing: -0.2px;
   color: #0f1724;
+  display: inline-flex;
+  align-items: center;
+}
+
+.file-analysis-title .title-icon {
+  margin-right: 10px;
+}
+
+.file-analysis-title .title-icon.clickable {
+  cursor: pointer;
 }
 
 .file-analysis-tabs {

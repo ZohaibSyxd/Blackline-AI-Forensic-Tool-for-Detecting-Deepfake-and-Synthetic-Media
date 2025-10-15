@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import "../pages/FileAnalysis.css";
 import "./Sidebar.css"; // reuse item-menu styles
 import ConfirmDialog from "./ConfirmDialog";
+import IconPickerModal from "./IconPickerModal";
 
 interface Props {
   currentPage: string;
@@ -9,12 +10,17 @@ interface Props {
   lastFilePage?: string;
   title?: string;
   onDeleteCurrent?: (key: string) => void;
+  // Optional emoji/icon to show to the left of the title, kept in sync with the sidebar icon
+  icon?: string;
+  // Optional handler to change the icon (enables clicking the header icon)
+  onChangeIcon?: (key: string, icon?: string) => void;
 }
 
-const SectionHeader: React.FC<Props> = ({ currentPage, onNavigate, lastFilePage, title, onDeleteCurrent }) => {
+const SectionHeader: React.FC<Props> = ({ currentPage, onNavigate, lastFilePage, title, onDeleteCurrent, icon, onChangeIcon }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
 
   const activeKey = currentPage && currentPage.startsWith('file') ? currentPage : (lastFilePage || 'file1');
 
@@ -36,7 +42,17 @@ const SectionHeader: React.FC<Props> = ({ currentPage, onNavigate, lastFilePage,
   return (
     <div className="page-content">
       <div className="file-analysis-header">
-        <div className="file-analysis-title">{title || 'Dashboard'}</div>
+        <div className="file-analysis-title">
+          {(currentPage.startsWith('file') || currentPage === 'reports') && (
+            <span
+              className={`title-icon ${onChangeIcon ? 'clickable' : ''}`}
+              aria-hidden
+              title={onChangeIcon ? 'Change icon' : undefined}
+              onClick={() => { if (onChangeIcon) setIconPickerOpen(true); }}
+            >{icon || '📁'}</span>
+          )}
+          {title || 'Dashboard'}
+        </div>
         <div className="file-analysis-tabs">
           <div className={`file-analysis-tab ${currentPage && currentPage.startsWith('file') ? 'active' : ''}`} onClick={() => onNavigate(lastFilePage || 'file1')}>Documents</div>
           <div className={`file-analysis-tab ${currentPage === 'reports' ? 'active' : ''}`} onClick={() => onNavigate('reports')}>Reports</div>
@@ -66,6 +82,14 @@ const SectionHeader: React.FC<Props> = ({ currentPage, onNavigate, lastFilePage,
         onConfirm={() => { onDeleteCurrent && onDeleteCurrent(activeKey); setConfirmOpen(false); }}
         onCancel={() => setConfirmOpen(false)}
       />
+      {onChangeIcon && (
+        <IconPickerModal
+          isOpen={iconPickerOpen}
+          currentIcon={icon}
+          onClose={() => setIconPickerOpen(false)}
+          onSelect={(ic) => { onChangeIcon(activeKey, ic); setIconPickerOpen(false); }}
+        />
+      )}
     </div>
   );
 };

@@ -206,12 +206,24 @@ const App: React.FC = () => {
 				<Sidebar active={page === 'reports' ? lastFilePage : page} onNavigate={navigate} onAddPage={addPage} onDeletePage={deletePage} onBulkDelete={deletePages} onRenamePage={renamePage} onReorder={reorderPages} onChangeIcon={changeIcon} pages={pages} />
 				<NewAnalysisModal isOpen={isNewModalOpen} defaultName={`FILE ANALYSIS ${fileCount}`} onClose={() => setIsNewModalOpen(false)} onCreate={createPage} />
 				<main className="main-content">
-				{ /* determine header title: if viewing a file page, show its label; otherwise show Dashboard */ }
-			<SectionHeader currentPage={page} onNavigate={navigate} lastFilePage={lastFilePage} onDeleteCurrent={deletePage} title={
-				page.startsWith('file')
-				    ? (pages.find(p => p.key === page)?.label || 'File Analysis')
-				    : (page === 'reports' ? (pages.find(p => p.key === lastFilePage)?.label || 'Reports') : 'Dashboard')
-			    } />
+				{ /* determine header title and icon: if viewing a file page, show its label and icon; for reports, use last file page's label and icon; otherwise Dashboard with no icon */ }
+			<SectionHeader
+				currentPage={page}
+				onNavigate={navigate}
+				lastFilePage={lastFilePage}
+				onDeleteCurrent={deletePage}
+				onChangeIcon={changeIcon}
+				title={
+					page.startsWith('file')
+					    ? (pages.find(p => p.key === page)?.label || 'File Analysis')
+					    : (page === 'reports' ? (pages.find(p => p.key === lastFilePage)?.label || 'Reports') : 'Dashboard')
+				}
+				icon={
+					page.startsWith('file')
+					  ? (pages.find(p => p.key === page)?.icon || '📁')
+					  : (page === 'reports' ? (pages.find(p => p.key === lastFilePage)?.icon || '📁') : undefined)
+				}
+			/>
 					{content}
 					</main>
 			</div>
