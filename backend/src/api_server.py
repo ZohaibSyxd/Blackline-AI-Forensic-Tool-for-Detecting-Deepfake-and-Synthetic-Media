@@ -36,6 +36,7 @@ from .probe_media import probe_asset
 from .validate_media import validate_asset
 from .utils import summarize_ffprobe
 from .models.df_detector import predict_deepfake
+# Note: heavy DL modules (torch/transformers) are imported lazily inside the route handler
 from .models.copy_move_live import predict_copy_move_single
 from .models.lbp_live import predict_lbp_single
 from .auth import handle_login, handle_signup, get_current_user, to_public, SignupRequest
@@ -161,6 +162,14 @@ async def analyze(file: UploadFile = File(...), model: str = Form("stub"), job_i
         df_pred = predict_copy_move_single(video_abs, sha256=ingest_rec["sha256"])  # returns score/label/method + cm_*
     elif model in ("lbp", "lbp_rf", "lbp-model"):
         df_pred = predict_lbp_single(video_abs)
+    elif model in ("dl", "deep", "deep_learning", "full", "fusion"):
+        # Online fusion (Xception + TimeSformer) for a single asset
+        try:
+            from .models.fusion_live import predict_fusion_single  # lazy import to avoid startup torch dependency
+            base = predict_fusion_single(video_abs)
+            df_pred = base
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Deep learning model unavailable: {e}")
     else:
         df_pred = predict_deepfake(video_abs, sha256=ingest_rec["sha256"])  # stub fallback
 
@@ -182,7 +191,7 @@ async def analyze(file: UploadFile = File(...), model: str = Form("stub"), job_i
     }
     # Include any additional model-specific fields (e.g., copy-move metrics/overlay)
     for k in ("cm_confidence", "cm_coverage_ratio", "cm_shift_magnitude", "cm_num_keypoints", "cm_num_matches", "overlay_uri",
-              "lbp_frames", "lbp_dim"):
+              "lbp_frames", "lbp_dim", "xception_agg_score", "timesformer_score"):
         if df_pred.get(k) is not None:
             summary[k] = df_pred[k]
 

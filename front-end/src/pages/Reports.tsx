@@ -3,7 +3,7 @@ import "./Reports.css";
 import { getAnalysesForPage, getAllAnalyses, StoredAnalysisSummary, deleteAnalyses, upsertAnalysis } from '../state/analysisStore';
 import { removeFile as removePersistedFile } from '../utils/uploadPersistence';
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE || "http://localhost:8010";
+const API_BASE = (import.meta as any).env?.VITE_API_BASE || "http://localhost:8000";
 
 const labelFor = (filePage?: string) => {
   if (!filePage) return "FILE ANALYSIS";

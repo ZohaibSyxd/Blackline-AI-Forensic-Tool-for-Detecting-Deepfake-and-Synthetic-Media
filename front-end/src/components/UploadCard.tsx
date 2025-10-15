@@ -34,7 +34,7 @@ interface AnalysisSummary {
   };
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8010";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
 type ItemStatus = 'idle' | 'uploading' | 'uploaded' | 'analyzing' | 'done' | 'error' | 'canceled';
 
@@ -510,6 +510,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
               <option value="stub">Hash Stub (baseline)</option>
               <option value="copy_move">Copy-Move (ORB)</option>
               <option value="lbp">LBP (trained)</option>
+              <option value="dl">Deep Learning (full)</option>
             </select>
             <button className="btn" onClick={handleBrowse}>Upload More</button>
             <button

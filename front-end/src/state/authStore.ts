@@ -45,7 +45,7 @@ function set(partial: Partial<AuthState>) {
 export function subscribe(fn: (s: AuthState) => void) { listeners.add(fn); fn(state); return () => listeners.delete(fn); }
 export function getAuthState() { return state; }
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:8010';
+const API_BASE = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:8000';
 
 export async function login(username: string, password: string) {
   set({ loading: true, error: null });
