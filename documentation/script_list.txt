@@ -31,9 +31,9 @@ python -m backend.src.sample_frames `
   --shots       .\backend\data\derived\shots.jsonl `
   --frames-out  .\backend\data\derived\frames.jsonl `
   --frames-root .\backend\data\derived\frames `
-  --fps 2 `
-  --jpeg-quality 85 `
-  --limit 400
+  --fps 8 `
+  --jpeg-quality 90 `
+  --limit 400 # Change however many you want
 
 # (Optional) Also extract clips per shot (for clip-based models)
 python -m backend.src.sample_frames `
@@ -191,7 +191,7 @@ python -m backend.src.models.fuse_models_lr `
   --out .\backend\data\derived\fusion_predictions_lr.jsonl
 
 # 20) Evaluation — learn threshold on TRAIN, evaluate on TEST; save curves+JSON
-python -m backend.src.eval.eval_jsonl `
+python -m backend.src.eval_jsonl `
   --preds .\backend\data\derived\fusion_predictions.jsonl `
   --manifest .\backend\data\derived\manifest.csv `
   --learn-threshold train --split test `
