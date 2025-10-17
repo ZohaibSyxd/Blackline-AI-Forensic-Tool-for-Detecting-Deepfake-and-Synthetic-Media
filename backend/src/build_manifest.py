@@ -24,6 +24,7 @@ Notes
 
 import argparse, csv, json
 from pathlib import Path
+from .audit import audit_step
 
 def infer_split_from_paths(rec):
     """Infer dataset split from audit record fields or known path hints."""
@@ -237,10 +238,12 @@ def main():
         print("No rows found. Did you ingest anything?")
         return
 
-    with open(args.out, "w", newline="", encoding="utf-8") as w:
-        writer = csv.DictWriter(w, fieldnames=list(rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(rows)
+    with audit_step("build_manifest", params=vars(args), inputs={"audit": args.audit, "meta": args.meta or "", "probe": args.probe or "", "validate": args.validate or ""}) as outputs:
+        with open(args.out, "w", newline="", encoding="utf-8") as w:
+            writer = csv.DictWriter(w, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
+        outputs["manifest"] = {"path": args.out}
 
     print(f"Wrote {len(rows)} rows -> {args.out}")
     if args.meta:

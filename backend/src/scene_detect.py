@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import List, Tuple, Optional
 
 from .utils import read_unique_assets, ffprobe_json, run_command
+from .audit import audit_step
 
 SCENE_RE = re.compile(
     r"pts_time[:=]\s*([0-9]+(?:\.[0-9]+)?)|lavfi\.scene_score(?:\s*[:=]\s*|\s*value=)([0-9]+(?:\.[0-9]+)?)"
@@ -106,75 +107,75 @@ def main():
 
     written = 0
     t0 = time.time()
-    with open(out_path, "w", encoding="utf-8") as w:
-        for rec in read_unique_assets(Path(args.audit)):
-            store_root = rec.get("store_root")
-            # Normalize potential Windows-style paths from audit log
-            root_path = _normalize_path_str(store_root) if store_root else None
-            stored_rel = _normalize_path_str(rec.get("stored_path"))
-            in_path = (root_path / stored_rel) if root_path else stored_rel
-            # Fallback to default expected raw root if not found
-            if not in_path.exists():
-                alt = Path("backend/data/raw") / stored_rel
-                in_path = alt if alt.exists() else in_path
-            if not in_path.exists():
-                continue
-            mime = (rec.get("mime") or "").lower()
-            if not mime.startswith("video/"):
-                continue
+    with audit_step("scene_detect", params=vars(args), inputs={"audit": args.audit}) as outputs:
+        with open(out_path, "w", encoding="utf-8") as w:
+            for rec in read_unique_assets(Path(args.audit)):
+                store_root = rec.get("store_root")
+                # Normalize potential Windows-style paths from audit log
+                root_path = _normalize_path_str(store_root) if store_root else None
+                stored_rel = _normalize_path_str(rec.get("stored_path"))
+                in_path = (root_path / stored_rel) if root_path else stored_rel
+                # Fallback to default expected raw root if not found
+                if not in_path.exists():
+                    alt = Path("backend/data/raw") / stored_rel
+                    in_path = alt if alt.exists() else in_path
+                if not in_path.exists():
+                    continue
+                mime = (rec.get("mime") or "").lower()
+                if not mime.startswith("video/"):
+                    continue
 
-            probe = ffprobe_json(in_path) or {}
-            fmt = probe.get("format") or {}
-            try:
-                duration_s = float(fmt.get("duration")) if fmt.get("duration") else None
-            except Exception:
-                duration_s = None
-            if not duration_s or duration_s <= 0:
-                # fallback: try decoding later steps; for now, skip
-                continue
+                probe = ffprobe_json(in_path) or {}
+                fmt = probe.get("format") or {}
+                try:
+                    duration_s = float(fmt.get("duration")) if fmt.get("duration") else None
+                except Exception:
+                    duration_s = None
+                if not duration_s or duration_s <= 0:
+                    # fallback: try decoding later steps; for now, skip
+                    continue
 
-            cuts = detect_scenes_ffmpeg(in_path, threshold=args.threshold)  # [(t_sec, score), ...]
-            # Build shot boundaries: 0, cut1, cut2, ..., duration
-            b_times = [0.0] + [t for t, _ in cuts if 0.0 < t < duration_s] + [duration_s]
-            b_scores = [None] + [s for _, s in cuts]  # score associated with entering shot i (None for first)
+                cuts = detect_scenes_ffmpeg(in_path, threshold=args.threshold)  # [(t_sec, score), ...]
+                # Build shot boundaries: 0, cut1, cut2, ..., duration
+                b_times = [0.0] + [t for t, _ in cuts if 0.0 < t < duration_s] + [duration_s]
+                b_scores = [None] + [s for _, s in cuts]  # score associated with entering shot i (None for first)
 
             # Enforce min-shot-ms by merging too-short shots with neighbors
-            min_s = args.min_shot_ms / 1000.0
-            i = 0
-            while i < len(b_times) - 1:
-                cur_len = b_times[i+1] - b_times[i]
-                if cur_len < min_s and i+2 < len(b_times):
-                    # Merge with next: drop boundary i+1 and its score
-                    del b_times[i+1]
-                    del b_scores[i+1]
-                    # do not advance i, re-check merged segment
-                else:
-                    i += 1
+                min_s = args.min_shot_ms / 1000.0
+                i = 0
+                while i < len(b_times) - 1:
+                    cur_len = b_times[i+1] - b_times[i]
+                    if cur_len < min_s and i+2 < len(b_times):
+                        # Merge with next: drop boundary i+1 and its score
+                        del b_times[i+1]
+                        del b_scores[i+1]
+                        # do not advance i, re-check merged segment
+                    else:
+                        i += 1
 
-            # Emit rows
-            for idx in range(len(b_times) - 1):
-                t_start = to_ms(b_times[idx])
-                t_end   = to_ms(b_times[idx+1])
-                row = {
-                    "asset_id": rec.get("asset_id"),
-                    "sha256": rec.get("sha256"),
-                    "stored_path": rec.get("stored_path"),
-                    "store_root": store_root,
-                    "shot_index": idx,
-                    "t_start_ms": t_start,
-                    "t_end_ms": t_end,
-                    "detector": "ffmpeg_scene",
-                    "threshold": args.threshold,
-                    "cut_score": b_scores[idx],  # None for first shot
-                }
-                w.write(json.dumps(row) + "\n")
-                written += 1
+                # Emit rows
+                for idx in range(len(b_times) - 1):
+                    t_start = to_ms(b_times[idx])
+                    t_end   = to_ms(b_times[idx+1])
+                    row = {
+                        "asset_id": rec.get("asset_id"),
+                        "sha256": rec.get("sha256"),
+                        "stored_path": rec.get("stored_path"),
+                        "store_root": store_root,
+                        "shot_index": idx,
+                        "t_start_ms": t_start,
+                        "t_end_ms": t_end,
+                        "detector": "ffmpeg_scene",
+                        "threshold": args.threshold,
+                        "cut_score": b_scores[idx],  # None for first shot
+                    }
+                    w.write(json.dumps(row) + "\n")
+                    written += 1
 
-            print(f"[shots] {in_path.name}: {len(b_times)-1} shots (cuts={len(cuts)})")
-
-            if args.limit and written >= args.limit:
-                break
-
+                print(f"[shots] {in_path.name}: {len(b_times)-1} shots (cuts={len(cuts)})")
+                if args.limit and written >= args.limit:
+                    break
+        outputs["shots"] = {"path": args.out}
     dt = time.time() - t0
     print(f"Wrote {written} shot rows → {out_path} in {dt:.1f}s")
 

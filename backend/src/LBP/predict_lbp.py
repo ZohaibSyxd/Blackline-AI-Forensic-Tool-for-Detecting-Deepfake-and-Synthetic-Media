@@ -21,6 +21,7 @@ import json
 import joblib
 import numpy as np
 from pathlib import Path
+from ..audit import audit_step
 
 
 def load_features(path):
@@ -73,7 +74,8 @@ def main():
 
     # Write output
     Path(Path(args.out).parent).mkdir(parents=True, exist_ok=True)
-    with open(args.out, "w", encoding="utf-8") as f:
+    with audit_step("predict_lbp", params=vars(args), inputs={"features": args.features, "model": args.model}) as outputs:
+      with open(args.out, "w", encoding="utf-8") as f:
         for asset_id, pred, score in zip(asset_ids, preds, scores):
             json.dump({
                 "asset_id": asset_id,
@@ -81,7 +83,7 @@ def main():
                 "pred_score": float(score),
             }, f)
             f.write("\n")
-
+      outputs["lbp_predictions"] = {"path": args.out}
     print(f"Wrote {len(asset_ids)} predictions -> {args.out}")
 
 

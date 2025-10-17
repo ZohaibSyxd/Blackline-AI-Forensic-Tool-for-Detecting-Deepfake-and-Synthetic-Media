@@ -24,6 +24,7 @@ import argparse
 import json
 from collections import defaultdict
 import numpy as np
+from ..audit import audit_step
 
 
 def load_features(path):
@@ -64,11 +65,13 @@ def main():
 
     features = load_features(args.features)
 
-    with open(args.out, "w", encoding="utf-8") as f:
-        for asset_id, hist_list in features.items():
-            agg = aggregate(hist_list, method=args.method)
-            json.dump({"asset_id": asset_id, "lbp": agg}, f)
-            f.write("\n")
+    with audit_step("aggregate_lbp", params=vars(args), inputs={"features": args.features}) as outputs:
+        with open(args.out, "w", encoding="utf-8") as f:
+            for asset_id, hist_list in features.items():
+                agg = aggregate(hist_list, method=args.method)
+                json.dump({"asset_id": asset_id, "lbp": agg}, f)
+                f.write("\n")
+        outputs["lbp_videos"] = {"path": args.out}
 
 
 

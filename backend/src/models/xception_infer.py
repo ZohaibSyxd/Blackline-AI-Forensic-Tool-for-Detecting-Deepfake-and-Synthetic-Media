@@ -8,6 +8,7 @@ from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from tqdm import tqdm
+from ..audit import audit_step
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]
@@ -145,27 +146,29 @@ def main():
         shuffle=False,
         collate_fn=collate_batch,   # NEW
     )
-
+    
     per_frame: List[Dict[str, Any]] = []
-    with open(args.out, "w", encoding="utf-8") as fw:
-        for xb, recs in tqdm(dl, desc="xception infer"):
-            probs = det.predict_batch(xb).cpu().tolist()
-            for p, rec in zip(probs, recs):
-                thr = args.decision_threshold
-                row = {
-                    "asset_id": rec.asset_id,
-                    "sha256": rec.sha256,
-                    "shot_index": rec.shot_index,
-                    "frame_index": rec.frame_index,
-                    "image_path": str(rec.path),
-                    "model": "xception_timm",
-                    "deepfake_score": float(p),
-                    "predicted_label": "FAKE" if p >= thr else "REAL",
-                    "decision_threshold": thr,
-                }
-                per_frame.append(row)
-                fw.write(json.dumps(row) + "\n")
+    with audit_step("xception_infer", params=vars(args), inputs={"frames_jsonl": args.frames_jsonl}) as outputs:
+        with open(args.out, "w", encoding="utf-8") as fw:
+            for xb, recs in tqdm(dl, desc="xception infer"):
+                probs = det.predict_batch(xb).cpu().tolist()
+                for p, rec in zip(probs, recs):
+                    thr = args.decision_threshold
+                    row = {
+                        "asset_id": rec.asset_id,
+                        "sha256": rec.sha256,
+                        "shot_index": rec.shot_index,
+                        "frame_index": rec.frame_index,
+                        "image_path": str(rec.path),
+                        "model": "xception_timm",
+                        "deepfake_score": float(p),
+                        "predicted_label": "FAKE" if p >= thr else "REAL",
+                        "decision_threshold": thr,
+                    }
+                    per_frame.append(row)
+                    fw.write(json.dumps(row) + "\n")
 
+        outputs["xception_scores_frames"] = {"path": args.out}
     if args.aggregate_shot_out:
         shots = aggregate_shot(per_frame, args.decision_threshold)
         out_p = Path(args.aggregate_shot_out)
@@ -173,6 +176,7 @@ def main():
         with open(out_p, "w", encoding="utf-8") as fw:
             for r in shots:
                 fw.write(json.dumps(r) + "\n")
+    # Optional aggregate output logged separately if needed
 
     print(f"Scored {len(per_frame)} images → {args.out}")
     if args.aggregate_shot_out:

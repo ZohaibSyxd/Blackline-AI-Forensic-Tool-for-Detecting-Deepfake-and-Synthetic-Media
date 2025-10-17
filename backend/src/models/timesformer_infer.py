@@ -36,6 +36,7 @@ import torch.nn as nn
 from PIL import Image
 import numpy as np
 from tqdm import tqdm
+from ..audit import audit_step
 
 # Preferred: decord; fallback: OpenCV
 try:
@@ -171,40 +172,41 @@ def main():
     def batches(lst, n):
         for i in range(0, len(lst), n):
             yield lst[i:i+n]
-
+    
     written = 0
-    with open(out_path, "w", encoding="utf-8") as fw:
-        for chunk in tqdm(list(batches(rows, args.batch_size)), desc="timesformer infer"):
-            batch_frames = []   # list of list[ PIL.Image ]
-            metas = []
-            for r in chunk:
-                imgs = load_clip_frames(clips_root, r.get("clip_uri",""), frames=args.frames)
-                if len(imgs) == 0:
-                    # write neutral score if unreadable
-                    threshold = args.decision_threshold if args.decision_threshold is not None else cfg.get("decision_threshold", 0.5)
-                    predicted_label = "FAKE" if 0.5 >= threshold else "REAL"
-                    rec = {
-                        "asset_id": r.get("asset_id"),
-                        "sha256": r.get("sha256"),
-                        "shot_index": r.get("shot_index"),
-                        "clip_uri": r.get("clip_uri"),
-                        "deepfake_score": 0.5,
-                        "predicted_label": predicted_label,
-                        "decision_threshold": threshold,
-                        "model_name": model_name,
-                        "model_version": version,
-                        "frames": args.frames,
-                        "input_size": [args.size, args.size],
-                        "note": "unreadable_clip"
-                    }
-                    fw.write(json.dumps(rec) + "\n"); written += 1
-                    continue
-                # Center-crop/resize handled by processor
-                batch_frames.append(imgs)
-                metas.append(r)
+    with audit_step("timesformer_infer", params=vars(args), inputs={"clips": args.clips}) as outputs:
+        with open(out_path, "w", encoding="utf-8") as fw:
+            for chunk in tqdm(list(batches(rows, args.batch_size)), desc="timesformer infer"):
+                batch_frames = []   # list of list[ PIL.Image ]
+                metas = []
+                for r in chunk:
+                    imgs = load_clip_frames(clips_root, r.get("clip_uri",""), frames=args.frames)
+                    if len(imgs) == 0:
+                        # write neutral score if unreadable
+                        threshold = args.decision_threshold if args.decision_threshold is not None else cfg.get("decision_threshold", 0.5)
+                        predicted_label = "FAKE" if 0.5 >= threshold else "REAL"
+                        rec = {
+                            "asset_id": r.get("asset_id"),
+                            "sha256": r.get("sha256"),
+                            "shot_index": r.get("shot_index"),
+                            "clip_uri": r.get("clip_uri"),
+                            "deepfake_score": 0.5,
+                            "predicted_label": predicted_label,
+                            "decision_threshold": threshold,
+                            "model_name": model_name,
+                            "model_version": version,
+                            "frames": args.frames,
+                            "input_size": [args.size, args.size],
+                            "note": "unreadable_clip"
+                        }
+                        fw.write(json.dumps(rec) + "\n"); written += 1
+                        continue
+                    # Center-crop/resize handled by processor
+                    batch_frames.append(imgs)
+                    metas.append(r)
 
-            if not batch_frames:
-                continue
+                if not batch_frames:
+                    continue
 
             with torch.no_grad():
                 inputs = processor(batch_frames, return_tensors="pt", size={"shortest_edge": args.size})
@@ -230,6 +232,7 @@ def main():
                 }
                 fw.write(json.dumps(rec) + "\n"); written += 1
 
+        outputs["timesformer_scores"] = {"path": args.out}
     print(f"Wrote {written} rows → {out_path}")
 
 if __name__ == "__main__":

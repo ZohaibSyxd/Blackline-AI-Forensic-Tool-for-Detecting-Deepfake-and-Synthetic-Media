@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Dict, Any
 
 from .utils import run_command
+from .audit import audit_step
 
 def ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
@@ -139,77 +140,79 @@ def main():
     rows_written = 0
     t0 = time.time()
 
-    with open(args.frames_out, "w", encoding="utf-8") as fw, open(args.shots, encoding="utf-8") as rs:
-        for line in rs:
-            if not line.strip():
-                continue
-            shot = json.loads(line)
-            sha = shot["sha256"]
-            store_root = shot.get("store_root")
-            stored_path = shot.get("stored_path")
-            root_path = _normalize_path_str(store_root) if store_root else None
-            stored_rel = _normalize_path_str(stored_path)
-            video_path = (root_path / stored_rel) if root_path else stored_rel
+    with audit_step("sample_frames", params=vars(args), inputs={"shots": args.shots}) as outputs:
+        with open(args.frames_out, "w", encoding="utf-8") as fw, open(args.shots, encoding="utf-8") as rs:
+            for line in rs:
+                if not line.strip():
+                    continue
+                shot = json.loads(line)
+                sha = shot["sha256"]
+                store_root = shot.get("store_root")
+                stored_path = shot.get("stored_path")
+                root_path = _normalize_path_str(store_root) if store_root else None
+                stored_rel = _normalize_path_str(stored_path)
+                video_path = (root_path / stored_rel) if root_path else stored_rel
 
-            # Fallback: if the combined path doesn't exist, try common default root
-            if not video_path.exists():
-                alt = Path("backend/data/raw") / stored_rel
-                if alt.exists():
-                    video_path = alt
-                else:
-                    # Skip if we can't resolve the video
+                # Fallback: if the combined path doesn't exist, try common default root
+                if not video_path.exists():
+                    alt = Path("backend/data/raw") / stored_rel
+                    if alt.exists():
+                        video_path = alt
+                    else:
+                        # Skip if we can't resolve the video
+                        continue
+
+                shot_idx = int(shot["shot_index"])
+                t_start_ms = int(shot["t_start_ms"])
+                t_end_ms = int(shot["t_end_ms"])
+                if t_end_ms <= t_start_ms:
                     continue
 
-            shot_idx = int(shot["shot_index"])
-            t_start_ms = int(shot["t_start_ms"])
-            t_end_ms = int(shot["t_end_ms"])
-            if t_end_ms <= t_start_ms:
-                continue
+                # 1) Optional clip extraction
+                if args.extract_clips:
+                    _ = extract_clip_one_shot(
+                        video_path, sha, shot_idx, t_start_ms, t_end_ms,
+                        clips_root, reencode=args.reencode
+                    )
 
-            # 1) Optional clip extraction
-            if args.extract_clips:
-                _ = extract_clip_one_shot(
+                # 2) Frame sampling
+                n = sample_frames_one_shot(
                     video_path, sha, shot_idx, t_start_ms, t_end_ms,
-                    clips_root, reencode=args.reencode
+                    fps=args.fps, jpeg_quality=args.jpeg_quality, frames_root=frames_root
                 )
 
-            # 2) Frame sampling
-            n = sample_frames_one_shot(
-                video_path, sha, shot_idx, t_start_ms, t_end_ms,
-                fps=args.fps, jpeg_quality=args.jpeg_quality, frames_root=frames_root
-            )
+                # 3) Emit JSONL rows for frames
+                #    We approximate timestamps by uniform spacing from shot start.
+                #    The first frame in each shot is tagged as keyframe=True (good heuristic for Step 4).
+                if n > 0:
+                    dt_ms = int(round(1000.0 / max(1, args.fps)))
+                    for i in range(n):
+                        approx_t = t_start_ms + i * dt_ms
+                        # ffmpeg starts numbering at 1 ("%06d.jpg" -> 000001.jpg),
+                        # so we use 1-based filenames for URIs and frame_index for consistency.
+                        file_idx = i + 1
+                        rel_uri = f"frames/{sha}/{shot_idx}/{file_idx:06d}.jpg"
+                        row: Dict[str, Any] = {
+                            "asset_id": shot.get("asset_id"),
+                            "sha256": sha,
+                            "stored_path": shot.get("stored_path"),
+                            "store_root": store_root,
+                            "shot_index": shot_idx,
+                            "frame_index": file_idx,
+                            "approx_t_ms": approx_t,
+                            "uri": rel_uri,
+                            "fps": args.fps,
+                            "keyframe": (i == 0),
+                        }
+                        fw.write(json.dumps(row) + "\n")
+                        rows_written += 1
 
-            # 3) Emit JSONL rows for frames
-            #    We approximate timestamps by uniform spacing from shot start.
-            #    The first frame in each shot is tagged as keyframe=True (good heuristic for Step 4).
-            if n > 0:
-                dt_ms = int(round(1000.0 / max(1, args.fps)))
-                for i in range(n):
-                    approx_t = t_start_ms + i * dt_ms
-                    # ffmpeg starts numbering at 1 ("%06d.jpg" -> 000001.jpg),
-                    # so we use 1-based filenames for URIs and frame_index for consistency.
-                    file_idx = i + 1
-                    rel_uri = f"frames/{sha}/{shot_idx}/{file_idx:06d}.jpg"
-                    row: Dict[str, Any] = {
-                        "asset_id": shot.get("asset_id"),
-                        "sha256": sha,
-                        "stored_path": shot.get("stored_path"),
-                        "store_root": store_root,
-                        "shot_index": shot_idx,
-                        "frame_index": file_idx,
-                        "approx_t_ms": approx_t,
-                        "uri": rel_uri,
-                        "fps": args.fps,
-                        "keyframe": (i == 0),
-                    }
-                    fw.write(json.dumps(row) + "\n")
-                    rows_written += 1
+                print(f"[frames] {video_path.name} | shot {shot_idx:03d} → {n} frames")
 
-            print(f"[frames] {video_path.name} | shot {shot_idx:03d} → {n} frames")
+                if args.limit and rows_written >= args.limit:
+                    break
 
-            if args.limit and rows_written >= args.limit:
-                break
-
+        outputs["frames"] = {"path": args.frames_out}
     dt = time.time() - t0
     print(f"Wrote {rows_written} frame rows → {args.frames_out} in {dt:.1f}s")
 

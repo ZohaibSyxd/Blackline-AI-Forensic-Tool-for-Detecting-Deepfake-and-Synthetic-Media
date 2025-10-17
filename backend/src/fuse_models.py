@@ -35,6 +35,7 @@ import argparse, csv, json
 from pathlib import Path
 import numpy as np
 from tqdm import tqdm
+from .audit import audit_step
 
 SCORE_KEYS = ["deepfake_score","prob_fake","fake_prob","score"]
 
@@ -158,7 +159,8 @@ def main():
 
     F=fuse(alpha)
     out=Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open("w",encoding="utf-8") as w:
+    with audit_step("fuse_models", params=vars(args), inputs={"xception": args.xception, "timesformer": args.timesformer, "manifest": args.manifest}) as outputs:
+      with out.open("w",encoding="utf-8") as w:
         for s, sx, st, sf in zip(shas, X, T, F):
             rec={
                 "asset_id": (aid.get(s) or None),
@@ -173,6 +175,7 @@ def main():
                 "model_version": "v1",
             }
             w.write(json.dumps(rec)+"\n")
+      outputs["fusion_predictions"] = {"path": args.out}
     print(f"Wrote → {out}")
 
 if __name__=="__main__":

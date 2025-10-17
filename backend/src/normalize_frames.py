@@ -47,6 +47,7 @@ import numpy as np
 import cv2
 from PIL import Image, ImageOps
 from PIL import __version__ as PIL_VERSION
+from .audit import audit_step
 
 # Optional imagehash (graceful fallback if not installed)
 try:
@@ -239,33 +240,35 @@ def main():
         ensure_dir(faces_root)
 
     processed = 0
-    with open(args.out, "w", encoding="utf-8") as fw, open(args.frames, encoding="utf-8") as fr:
-        for line in fr:
-            if not line.strip():
-                continue
-            try:
-                frame_data = json.loads(line)
-            except Exception:
-                continue
+    with audit_step("normalize_frames", params=vars(args), inputs={"frames": args.frames}) as outputs:
+        with open(args.out, "w", encoding="utf-8") as fw, open(args.frames, encoding="utf-8") as fr:
+            for line in fr:
+                if not line.strip():
+                    continue
+                try:
+                    frame_data = json.loads(line)
+                except Exception:
+                    continue
 
-            enhanced = process_single_frame(
-                frame_data=frame_data,
-                frames_root=frames_root,
-                normalized_root=normalized_root,
-                target_size=args.target_size,
-                extract_faces=args.extract_faces,
-                faces_root=faces_root,
-            )
+                enhanced = process_single_frame(
+                    frame_data=frame_data,
+                    frames_root=frames_root,
+                    normalized_root=normalized_root,
+                    target_size=args.target_size,
+                    extract_faces=args.extract_faces,
+                    faces_root=faces_root,
+                )
 
-            if enhanced:
-                fw.write(json.dumps(enhanced) + "\n")
-                processed += 1
-                if processed % 100 == 0:
-                    print(f"Processed {processed} frames...")
+                if enhanced:
+                    fw.write(json.dumps(enhanced) + "\n")
+                    processed += 1
+                    if processed % 100 == 0:
+                        print(f"Processed {processed} frames...")
 
-            if args.limit and processed >= args.limit:
-                break
+                if args.limit and processed >= args.limit:
+                    break
 
+        outputs["frames_normalized"] = {"path": args.out}
     print(f"Normalization complete: processed {processed} frames → {args.out}")
 
 

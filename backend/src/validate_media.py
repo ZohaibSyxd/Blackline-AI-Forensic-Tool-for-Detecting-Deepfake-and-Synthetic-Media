@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 from .utils import read_unique_assets, ffprobe_json, ffmpeg_decode_ok, run_command
+from .audit import audit_step
 
 def classify_kind(mime: Optional[str], path: Path) -> str:
     """Classify media kind from MIME or extension. Images are marked unsupported.
@@ -167,94 +168,85 @@ def main():
         pillow_ver = None
 
     count = 0
-    with open(out_path, "w", encoding="utf-8") as w:
-        # Iterate unique assets from ingest audit log
-        for rec in read_unique_assets(Path(args.audit)):
-            store_root = rec.get("store_root")
-            path = Path(store_root, rec["stored_path"]) if store_root else Path(rec["stored_path"]) 
-            mime = rec.get("mime")
-            if not path.exists():
-                # Record missing files explicitly to keep audit trail complete
+    with audit_step("validate", params=vars(args), inputs={"audit": args.audit}) as outputs:
+        with open(out_path, "w", encoding="utf-8") as w:
+            for rec in read_unique_assets(Path(args.audit)):
+                store_root = rec.get("store_root")
+                path = Path(store_root, rec["stored_path"]) if store_root else Path(rec["stored_path"]) 
+                mime = rec.get("mime")
+                if not path.exists():
+                    row = {
+                        "asset_id": rec.get("asset_id"),
+                        "sha256": rec.get("sha256"),
+                        "stored_path": rec.get("stored_path"),
+                        "store_root": store_root,
+                        "mime": mime,
+                        "media_kind": None,
+                        "format_valid": False,
+                        "decode_valid": None,
+                        "width": None,
+                        "height": None,
+                        "duration_s": None,
+                        "errors": ["file_missing"],
+                        "when": tstart,
+                        "tool_versions": {"ffprobe": ffprobe_ver, "ffmpeg": ffmpeg_ver, "pillow": pillow_ver},
+                    }
+                    w.write(json.dumps(row) + "\n")
+                    count += 1
+                    if args.limit and count >= args.limit:
+                        break
+                    continue
+
+                kind = classify_kind(mime, path)
+                errors: List[str] = []
+                width = height = None
+                duration_s = None
+                format_valid: Optional[bool] = None
+                decode_valid: Optional[bool] = None
+                if kind == "image":
+                    format_valid = False
+                    decode_valid = None
+                    errors.append("unsupported_kind:image")
+                elif kind == "video":
+                    probe = ffprobe_json(path)
+                    summ = summarize_probe(probe)
+                    width, height = summ.get("width"), summ.get("height")
+                    duration_s = summ.get("duration_s")
+                    has_streams = (summ.get("video_streams") or 0) + (summ.get("audio_streams") or 0) > 0
+                    format_valid = True if (probe and has_streams) else False
+                    if probe is None and shutil.which("ffprobe") is None:
+                        errors.append("ffprobe_missing")
+                    decode_valid = ffmpeg_decode_ok(path)
+                    if decode_valid is None and shutil.which("ffmpeg") is None:
+                        errors.append("ffmpeg_missing")
+                    if decode_valid is False:
+                        errors.append("decode_failed")
+                else:
+                    format_valid = False
+                    errors.append("unsupported_kind")
+
                 row = {
                     "asset_id": rec.get("asset_id"),
                     "sha256": rec.get("sha256"),
                     "stored_path": rec.get("stored_path"),
                     "store_root": store_root,
                     "mime": mime,
-                    "media_kind": None,
-                    "format_valid": False,
-                    "decode_valid": None,
-                    "width": None,
-                    "height": None,
-                    "duration_s": None,
-                    "errors": ["file_missing"],
+                    "media_kind": kind,
+                    "format_valid": format_valid,
+                    "decode_valid": decode_valid,
+                    "width": width,
+                    "height": height,
+                    "duration_s": duration_s,
+                    "errors": errors,
                     "when": tstart,
                     "tool_versions": {"ffprobe": ffprobe_ver, "ffmpeg": ffmpeg_ver, "pillow": pillow_ver},
                 }
                 w.write(json.dumps(row) + "\n")
                 count += 1
+                print(f"[validate] {path.name} kind={kind} format={format_valid} decode={decode_valid}")
                 if args.limit and count >= args.limit:
                     break
-                continue
-
-            kind = classify_kind(mime, path)
-            errors: List[str] = []
-
-            width = height = None
-            duration_s = None
-            format_valid: Optional[bool] = None
-            decode_valid: Optional[bool] = None
-
-            if kind == "image":
-                # For a video-only pipeline, images are not supported
-                format_valid = False
-                decode_valid = None
-                errors.append("unsupported_kind:image")
-            elif kind == "video":
-                # Probe container/streams and attempt a dry-run decode to surface corruption
-                probe = ffprobe_json(path)
-                summ = summarize_probe(probe)
-                width, height = summ.get("width"), summ.get("height")
-                duration_s = summ.get("duration_s")
-                # consider format_valid True if we have at least one stream and width/height when video present
-                has_streams = (summ.get("video_streams") or 0) + (summ.get("audio_streams") or 0) > 0
-                format_valid = True if (probe and has_streams) else False
-                if probe is None and shutil.which("ffprobe") is None:
-                    errors.append("ffprobe_missing")
-                decode_valid = ffmpeg_decode_ok(path)
-                if decode_valid is None and shutil.which("ffmpeg") is None:
-                    errors.append("ffmpeg_missing")
-                if decode_valid is False:
-                    errors.append("decode_failed")
-            else:
-                # unsupported/other
-                format_valid = False
-                errors.append("unsupported_kind")
-
-            # Emit one JSONL row per asset with validation results
-            row = {
-                "asset_id": rec.get("asset_id"),
-                "sha256": rec.get("sha256"),
-                "stored_path": rec.get("stored_path"),
-                "store_root": store_root,
-                "mime": mime,
-                "media_kind": kind,
-                "format_valid": format_valid,
-                "decode_valid": decode_valid,
-                "width": width,
-                "height": height,
-                "duration_s": duration_s,
-                "errors": errors,
-                "when": tstart,
-                "tool_versions": {"ffprobe": ffprobe_ver, "ffmpeg": ffmpeg_ver, "pillow": pillow_ver},
-            }
-            w.write(json.dumps(row) + "\n")
-            count += 1
-            print(f"[validate] {path.name} kind={kind} format={format_valid} decode={decode_valid}")
-            # Support quick smoke tests by honoring --limit
-            if args.limit and count >= args.limit:
-                break
-
+        outputs["validate"] = {"path": args.out}
     print(f"Wrote {count} rows -> {out_path}")
 
 

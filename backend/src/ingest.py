@@ -19,6 +19,7 @@ Notes
 
 import argparse, hashlib, json, os, shutil, sys, time, getpass, uuid, mimetypes
 from pathlib import Path
+from .audit import append_audit_row
 
 # Allowed video file extensions (detection is for videos only)
 ALLOWED_EXTS = {".mp4",".m4v",".avi",".mov",".mkv",".webm",".mpg",".mpeg"}
@@ -126,8 +127,25 @@ def main():
         if rec is None:
             skipped += 1
             continue
-        with open(audit_path, "a", encoding="utf-8") as out:
-            out.write(json.dumps(rec) + "\n")
+        # Write only the required fields for ingest_log.jsonl
+        dest_abs = Path(store_root) / rec["stored_path"]
+        try:
+            size_bytes = dest_abs.stat().st_size
+        except Exception:
+            size_bytes = None
+        ingest_row = {
+            "ts": now_iso,
+            "user": user,
+            "action": rec["action"],
+            "sha256": rec["sha256"],
+            "stored_path": rec["stored_path"],
+            "size_bytes": size_bytes,
+            "mime": rec.get("mime"),
+            "source": "cli",
+        }
+        # drop None fields (size_bytes/mime when unknown)
+        ingest_row = {k: v for k, v in ingest_row.items() if v is not None}
+        append_audit_row(audit_path, ingest_row)
         kept += 1
         print(f"[{rec['action']}] {f.name}  ->  {Path(rec['stored_path']).name}  ({rec['sha256'][:12]}...)")
 

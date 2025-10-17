@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Dict, List
 
 import joblib
+from ..audit import audit_step
 import numpy as np
 
 
@@ -104,7 +105,8 @@ def main() -> None:
     prob_fake = 1.0 - prob_real
     pred_real = (prob_real >= 0.5).astype(int)  # 1=REAL else 0
 
-    with open(out_path, "w", encoding="utf-8") as w:
+    with audit_step("predict_noise", params=vars(args), inputs={"frames_noise": args.frames_noise, "model": args.model}) as outputs:
+      with open(out_path, "w", encoding="utf-8") as w:
         for sha, yhat, pf in zip(shas, pred_real, prob_fake):
             row = {
                 "group_key": sha,
@@ -112,7 +114,7 @@ def main() -> None:
                 "pred_prob_fake": float(pf),
             }
             w.write(json.dumps(row) + "\n")
-
+      outputs["noise_predictions"] = {"path": args.out}
     print(f"Wrote {len(shas)} predictions -> {out_path}")
 
 

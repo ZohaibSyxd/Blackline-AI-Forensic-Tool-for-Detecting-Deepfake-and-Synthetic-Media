@@ -31,6 +31,7 @@ from typing import Any, Dict, Tuple
 import numpy as np
 import cv2
 from PIL import Image
+from ..audit import audit_step
 
 
 def ensure_dir(p: Path) -> None:
@@ -175,87 +176,88 @@ def main() -> None:
     missing_src = 0
     exceptions = 0
     vcount = 0
-    with open(args.out, "w", encoding="utf-8") as fw, open(args.frames, encoding="utf-8") as fr:
-        for line in fr:
-            if not line.strip():
-                continue
-            try:
-                row: Dict[str, Any] = json.loads(line)
-            except Exception:
-                parse_errors += 1
-                if args.verbose and vcount < args.debug_limit:
-                    print("[skip] parse error for line")
-                    vcount += 1
-                continue
+    with audit_step("compute_noise", params=vars(args), inputs={"frames": args.frames}) as outputs:
+        with open(args.out, "w", encoding="utf-8") as fw, open(args.frames, encoding="utf-8") as fr:
+            for line in fr:
+                if not line.strip():
+                    continue
+                try:
+                    row: Dict[str, Any] = json.loads(line)
+                except Exception:
+                    parse_errors += 1
+                    if args.verbose and vcount < args.debug_limit:
+                        print("[skip] parse error for line")
+                        vcount += 1
+                    continue
 
-            uri = row.get("uri")
-            sha = row.get("sha256")
-            shot_idx = row.get("shot_index")
-            frame_idx = row.get("frame_index")
-            if not uri or sha is None or shot_idx is None or frame_idx is None:
-                missing_fields += 1
-                if args.verbose and vcount < args.debug_limit:
-                    print("[skip] missing required fields in row:", row)
-                    vcount += 1
-                continue
+                uri = row.get("uri")
+                sha = row.get("sha256")
+                shot_idx = row.get("shot_index")
+                frame_idx = row.get("frame_index")
+                if not uri or sha is None or shot_idx is None or frame_idx is None:
+                    missing_fields += 1
+                    if args.verbose and vcount < args.debug_limit:
+                        print("[skip] missing required fields in row:", row)
+                        vcount += 1
+                    continue
 
-            src_path = frames_root / Path(uri).relative_to("frames")  # uri starts with frames/
-            if not src_path.exists():
-                missing_src += 1
-                if args.verbose and vcount < args.debug_limit:
-                    print(f"[skip] src not found: {src_path}")
-                    vcount += 1
-                continue
+                src_path = frames_root / Path(uri).relative_to("frames")  # uri starts with frames/
+                if not src_path.exists():
+                    missing_src += 1
+                    if args.verbose and vcount < args.debug_limit:
+                        print(f"[skip] src not found: {src_path}")
+                        vcount += 1
+                    continue
 
-            try:
-                gray = load_gray(src_path)
-                res = compute_residual(gray, method=args.method, gaussian_sigma=args.gaussian_sigma,
-                                       median_ksize=args.median_ksize, nlm_h=args.nlm_h)
-                res_vis = residual_vis(res)
-                spec_vis, fft_metrics = fft_spectrum(res)
-                m = residual_metrics(res)
+                try:
+                    gray = load_gray(src_path)
+                    res = compute_residual(gray, method=args.method, gaussian_sigma=args.gaussian_sigma,
+                                           median_ksize=args.median_ksize, nlm_h=args.nlm_h)
+                    res_vis = residual_vis(res)
+                    spec_vis, fft_metrics = fft_spectrum(res)
+                    m = residual_metrics(res)
 
-                # Save overlays
-                out_dir_res = overlays_noise_root / str(sha) / str(shot_idx)
-                out_dir_fft = overlays_fft_root / str(sha) / str(shot_idx)
-                ensure_dir(out_dir_res)
-                ensure_dir(out_dir_fft)
-                out_path_res = out_dir_res / f"{int(frame_idx):06d}.jpg"
-                out_path_fft = out_dir_fft / f"{int(frame_idx):06d}.jpg"
-                cv2.imwrite(str(out_path_res), res_vis)
-                cv2.imwrite(str(out_path_fft), spec_vis)
+                    # Save overlays
+                    out_dir_res = overlays_noise_root / str(sha) / str(shot_idx)
+                    out_dir_fft = overlays_fft_root / str(sha) / str(shot_idx)
+                    ensure_dir(out_dir_res)
+                    ensure_dir(out_dir_fft)
+                    out_path_res = out_dir_res / f"{int(frame_idx):06d}.jpg"
+                    out_path_fft = out_dir_fft / f"{int(frame_idx):06d}.jpg"
+                    cv2.imwrite(str(out_path_res), res_vis)
+                    cv2.imwrite(str(out_path_fft), spec_vis)
 
-                out_row = {
-                    "asset_id": row.get("asset_id"),
-                    "sha256": sha,
-                    "shot_index": shot_idx,
-                    "frame_index": frame_idx,
-                    "uri": uri,
-                    "overlay_residual_uri": str(out_path_res.relative_to(overlays_noise_root.parent).as_posix()),
-                    "overlay_fft_uri": str(out_path_fft.relative_to(overlays_fft_root.parent).as_posix()),
-                    **m,
-                    **fft_metrics,
-                }
-                out_row = _sanitize_for_json(out_row)
-                fw.write(json.dumps(out_row) + "\n")
-                processed += 1
-            except Exception:
-                # Skip corrupted images or processing failures
-                exceptions += 1
-                if args.verbose and vcount < args.debug_limit:
-                    import traceback
-                    print(f"[skip] exception processing {src_path}:")
-                    traceback.print_exc(limit=1)
-                    vcount += 1
-                continue
+                    out_row = {
+                        "asset_id": row.get("asset_id"),
+                        "sha256": sha,
+                        "shot_index": shot_idx,
+                        "frame_index": frame_idx,
+                        "uri": uri,
+                        "overlay_residual_uri": str(out_path_res.relative_to(overlays_noise_root.parent).as_posix()),
+                        "overlay_fft_uri": str(out_path_fft.relative_to(overlays_fft_root.parent).as_posix()),
+                        **m,
+                        **fft_metrics,
+                    }
+                    out_row = _sanitize_for_json(out_row)
+                    fw.write(json.dumps(out_row) + "\n")
+                    processed += 1
+                except Exception:
+                    # Skip corrupted images or processing failures
+                    exceptions += 1
+                    if args.verbose and vcount < args.debug_limit:
+                        import traceback
+                        print(f"[skip] exception processing {src_path}:")
+                        traceback.print_exc(limit=1)
+                        vcount += 1
+                    continue
 
-            if args.limit and processed >= args.limit:
-                break
-            total += 1
+                if args.limit and processed >= args.limit:
+                    break
+                total += 1
 
+        outputs["frames_noise"] = {"path": args.out}
     print(f"Noise analysis processed {processed} frames → {args.out}")
-    if args.verbose:
-        print(f"Summary: parsed_ok={processed + missing_src + missing_fields + exceptions} parse_errors={parse_errors} missing_fields={missing_fields} missing_src={missing_src} exceptions={exceptions}")
+    print(f"Summary: parsed_ok={processed + missing_src + missing_fields + exceptions} parse_errors={parse_errors} missing_fields={missing_fields} missing_src={missing_src} exceptions={exceptions}")
 
 
 if __name__ == "__main__":

@@ -32,6 +32,7 @@ from starlette.staticfiles import StaticFiles
 
 # Local imports (relative within package)
 from .ingest import ingest_single_file
+from .audit import append_audit_row, DEFAULT_INGEST_LOG
 from .probe_media import probe_asset
 from .validate_media import validate_asset
 from .utils import summarize_ffprobe
@@ -232,6 +233,30 @@ async def analyze(file: UploadFile = File(...), model: str = Form("stub"), job_i
                 temp_path.unlink()
             except Exception:
                 pass
+
+    # Append ingest audit row (API source) to ingest_log.jsonl
+    try:
+        if ingest_rec is not None:
+            dest_abs = Path(ingest_rec["store_root"]) / ingest_rec["stored_path"]
+            try:
+                size_bytes = dest_abs.stat().st_size
+            except Exception:
+                size_bytes = None
+            api_ingest_row = {
+                "ts": __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime()),
+                "user": __import__("getpass").getuser(),
+                "action": ingest_rec["action"],
+                "sha256": ingest_rec["sha256"],
+                "stored_path": ingest_rec["stored_path"],
+                "size_bytes": size_bytes,
+                "mime": ingest_rec.get("mime"),
+                "source": "api",
+            }
+            api_ingest_row = {k: v for k, v in api_ingest_row.items() if v is not None}
+            append_audit_row(DEFAULT_INGEST_LOG, api_ingest_row)
+    except Exception:
+        # Do not fail request on audit write issues
+        pass
 
     # 3) Validate & probe
     _write_progress(job_id, "validate", 30, "Validating format & decode")

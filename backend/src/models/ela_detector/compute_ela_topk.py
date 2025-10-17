@@ -22,6 +22,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+from ...audit import audit_step
 
 import numpy as np
 from PIL import Image, ImageChops
@@ -88,51 +89,52 @@ def main() -> None:
     processed = 0
     tie = 0
 
-    with open(args.frames, encoding="utf-8") as fr:
-        for line in fr:
-            if not line.strip():
-                continue
-            try:
-                row: Dict[str, Any] = json.loads(line)
-            except Exception:
-                continue
+    with audit_step("compute_ela_topk", params=vars(args), inputs={"frames": args.frames}) as outputs:
+        with open(args.frames, encoding="utf-8") as fr:
+            for line in fr:
+                if not line.strip():
+                    continue
+                try:
+                    row: Dict[str, Any] = json.loads(line)
+                except Exception:
+                    continue
 
-            uri = row.get("uri")
-            sha = row.get("sha256")
-            shot_idx = row.get("shot_index")
-            frame_idx = row.get("frame_index")
-            if not uri or sha is None or shot_idx is None or frame_idx is None:
-                continue
+                uri = row.get("uri")
+                sha = row.get("sha256")
+                shot_idx = row.get("shot_index")
+                frame_idx = row.get("frame_index")
+                if not uri or sha is None or shot_idx is None or frame_idx is None:
+                    continue
 
-            try:
-                src_path = frames_root / Path(uri).relative_to("frames")  # uri starts with frames/
-            except Exception:
-                continue
+                try:
+                    src_path = frames_root / Path(uri).relative_to("frames")  # uri starts with frames/
+                except Exception:
+                    continue
 
-            if not src_path.exists():
-                continue
+                if not src_path.exists():
+                    continue
 
-            try:
-                # Compute score using unscaled ELA
-                img = Image.open(src_path).convert("RGB")
-                ela_img_unscaled = compute_ela_image(img, recompress_quality=args.jpeg_quality, scale=1.0)
-                m = ela_metrics(ela_img_unscaled)
-                score = m["ela_error_max"] if args.metric == "max" else m["ela_error_mean"]
+                try:
+                    # Compute score using unscaled ELA
+                    img = Image.open(src_path).convert("RGB")
+                    ela_img_unscaled = compute_ela_image(img, recompress_quality=args.jpeg_quality, scale=1.0)
+                    m = ela_metrics(ela_img_unscaled)
+                    score = m["ela_error_max"] if args.metric == "max" else m["ela_error_mean"]
 
-                # Keep smallest on top; if heap not full, push; else replace if score better
-                if len(heap) < args.topk:
-                    heapq.heappush(heap, (score, tie, {**row, **m}))
-                else:
-                    if score > heap[0][0]:
-                        heapq.heapreplace(heap, (score, tie, {**row, **m}))
-                tie += 1
-                processed += 1
-            except Exception:
-                # Skip corrupted images
-                continue
+                    # Keep smallest on top; if heap not full, push; else replace if score better
+                    if len(heap) < args.topk:
+                        heapq.heappush(heap, (score, tie, {**row, **m}))
+                    else:
+                        if score > heap[0][0]:
+                            heapq.heapreplace(heap, (score, tie, {**row, **m}))
+                    tie += 1
+                    processed += 1
+                except Exception:
+                    # Skip corrupted images
+                    continue
 
-            if args.limit and processed >= args.limit:
-                break
+                if args.limit and processed >= args.limit:
+                    break
 
     if not heap:
         print("No frames ranked; nothing to save.")
@@ -181,6 +183,7 @@ def main() -> None:
                 # Skip if anything goes wrong for this frame
                 continue
 
+    outputs["frames_ela_topk"] = {"path": args.out}
     print(f"Ranked {processed} frames, saved top-{len(selected)} overlays → {args.out}")
 
 

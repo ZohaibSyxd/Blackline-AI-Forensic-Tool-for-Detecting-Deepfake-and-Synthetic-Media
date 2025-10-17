@@ -16,6 +16,7 @@ import argparse, json, time
 from pathlib import Path
 
 from .utils import read_unique_assets, ffprobe_json, exiftool_json, summarize_ffprobe
+from .audit import audit_step
 
 
 def probe_asset(
@@ -67,36 +68,42 @@ def main():
     Path(Path(args.out).parent).mkdir(parents=True, exist_ok=True)
 
     count = 0
-    with open(args.out, "w", encoding="utf-8") as w:
-        for rec in read_unique_assets(Path(args.audit)):
+    with audit_step(
+        "probe",
+        params=vars(args),
+        inputs={"audit": args.audit},
+    ) as outputs:
+        with open(args.out, "w", encoding="utf-8") as w:
+            for rec in read_unique_assets(Path(args.audit)):
             # stored_path is now relative to store_root; reconstruct absolute path if store_root present
-            store_root = rec.get("store_root")
-            p = Path(store_root, rec["stored_path"]) if store_root else Path(rec["stored_path"])
-            # Skip non-video assets in a video-only pipeline
-            if rec.get("mime") and not str(rec.get("mime")).lower().startswith("video/"):
-                continue
-            ffj = ffprobe_json(p)
-            exj = None if args.no_exif else exiftool_json(p)
-            summary = summarize_ffprobe(ffj)
-            row = {
-                "asset_id": rec.get("asset_id"),
-                "sha256": rec["sha256"],
-                "stored_path": rec["stored_path"],
-                "store_root": store_root,
-                "mime": rec.get("mime"),
-                "probe": ffj,
-                "exif": exj,
-                "summary": summary,
-                "when": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "tool_versions": {"ingest": rec.get("tool_version")},
-            }
-            w.write(json.dumps(row) + "\n")
-            count += 1
-            print(
-                f"[probed] {p.name} {summary.get('width')}x{summary.get('height')} @ {summary.get('fps')} fps | sha256={rec['sha256'][:12]}..."
-            )
-            if args.limit and count >= args.limit:
-                break
+                store_root = rec.get("store_root")
+                p = Path(store_root, rec["stored_path"]) if store_root else Path(rec["stored_path"])
+                # Skip non-video assets in a video-only pipeline
+                if rec.get("mime") and not str(rec.get("mime")).lower().startswith("video/"):
+                    continue
+                ffj = ffprobe_json(p)
+                exj = None if args.no_exif else exiftool_json(p)
+                summary = summarize_ffprobe(ffj)
+                row = {
+                    "asset_id": rec.get("asset_id"),
+                    "sha256": rec["sha256"],
+                    "stored_path": rec["stored_path"],
+                    "store_root": store_root,
+                    "mime": rec.get("mime"),
+                    "probe": ffj,
+                    "exif": exj,
+                    "summary": summary,
+                    "when": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "tool_versions": {"ingest": rec.get("tool_version")},
+                }
+                w.write(json.dumps(row) + "\n")
+                count += 1
+                print(
+                    f"[probed] {p.name} {summary.get('width')}x{summary.get('height')} @ {summary.get('fps')} fps | sha256={rec['sha256'][:12]}..."
+                )
+                if args.limit and count >= args.limit:
+                    break
+        outputs["probe"] = {"path": args.out}
     print(f"Wrote {count} rows -> {args.out}")
 
 

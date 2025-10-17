@@ -26,6 +26,7 @@ import argparse
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+from ..audit import audit_step
 
 import numpy as np
 import cv2
@@ -187,62 +188,64 @@ def main() -> None:
     ensure_dir(overlays_root)
 
     processed = 0
-    with open(args.out, "w", encoding="utf-8") as fw, open(args.frames, encoding="utf-8") as fr:
-        for line in fr:
-            if not line.strip():
-                continue
-            try:
-                row: Dict[str, Any] = json.loads(line)
-            except Exception:
-                continue
-
-            uri = row.get("uri")
-            sha = row.get("sha256")
-            shot_idx = row.get("shot_index")
-            frame_idx = row.get("frame_index")
-            if not uri or sha is None or shot_idx is None or frame_idx is None:
-                continue
-
-            src_path = frames_root / Path(uri).relative_to("frames")  # uri starts with frames/
-            if not src_path.exists():
-                continue
-
-            try:
-                bgr = cv2.imread(str(src_path), cv2.IMREAD_COLOR)
-                if bgr is None:
+    with audit_step("compute_copy_move", params=vars(args), inputs={"frames": args.frames}) as outputs:
+        with open(args.out, "w", encoding="utf-8") as fw, open(args.frames, encoding="utf-8") as fr:
+            for line in fr:
+                if not line.strip():
                     continue
-                vis, m = detect_copy_move(
-                    bgr,
-                    max_features=args.max_features,
-                    min_shift=args.min_shift,
-                    bin_size=args.bin_size,
-                    min_pairs=args.min_pairs,
-                )
+                try:
+                    row: Dict[str, Any] = json.loads(line)
+                except Exception:
+                    continue
 
-                # Save overlay
-                out_dir = overlays_root / str(sha) / str(shot_idx)
-                ensure_dir(out_dir)
-                out_path = out_dir / f"{int(frame_idx):06d}.jpg"
-                cv2.imwrite(str(out_path), vis, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+                uri = row.get("uri")
+                sha = row.get("sha256")
+                shot_idx = row.get("shot_index")
+                frame_idx = row.get("frame_index")
+                if not uri or sha is None or shot_idx is None or frame_idx is None:
+                    continue
 
-                out_row = {
-                    "asset_id": row.get("asset_id"),
-                    "sha256": sha,
-                    "shot_index": shot_idx,
-                    "frame_index": frame_idx,
-                    "uri": uri,
-                    "overlay_uri": str(out_path.relative_to(overlays_root.parent).as_posix()),
-                    **m,
-                }
-                fw.write(json.dumps(out_row) + "\n")
-                processed += 1
-            except Exception:
-                # Skip on any per-frame failure
-                continue
+                src_path = frames_root / Path(uri).relative_to("frames")  # uri starts with frames/
+                if not src_path.exists():
+                    continue
 
-            if args.limit and processed >= args.limit:
-                break
+                try:
+                    bgr = cv2.imread(str(src_path), cv2.IMREAD_COLOR)
+                    if bgr is None:
+                        continue
+                    vis, m = detect_copy_move(
+                        bgr,
+                        max_features=args.max_features,
+                        min_shift=args.min_shift,
+                        bin_size=args.bin_size,
+                        min_pairs=args.min_pairs,
+                    )
 
+                    # Save overlay
+                    out_dir = overlays_root / str(sha) / str(shot_idx)
+                    ensure_dir(out_dir)
+                    out_path = out_dir / f"{int(frame_idx):06d}.jpg"
+                    cv2.imwrite(str(out_path), vis, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+
+                    out_row = {
+                        "asset_id": row.get("asset_id"),
+                        "sha256": sha,
+                        "shot_index": shot_idx,
+                        "frame_index": frame_idx,
+                        "uri": uri,
+                        "overlay_uri": str(out_path.relative_to(overlays_root.parent).as_posix()),
+                        **m,
+                    }
+                    fw.write(json.dumps(out_row) + "\n")
+                    processed += 1
+                except Exception:
+                    # Skip on any per-frame failure
+                    continue
+
+                if args.limit and processed >= args.limit:
+                    break
+
+        outputs["frames_copy_move"] = {"path": args.out}
     print(f"Copy-Move processed {processed} frames → {args.out}")
 
 

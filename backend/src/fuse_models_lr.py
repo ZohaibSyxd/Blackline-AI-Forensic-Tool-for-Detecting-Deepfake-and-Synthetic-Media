@@ -29,6 +29,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import roc_auc_score, accuracy_score
 from tqdm import tqdm
+from .audit import audit_step
 
 SCORE_KEYS=["deepfake_score","prob_fake","fake_prob","score"]
 
@@ -137,7 +138,8 @@ def main():
 
     probs=clf.predict_proba(X)[:,1]  # P(FAKE)
     out=Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open("w",encoding="utf-8") as w:
+    with audit_step("fuse_models_lr", params=vars(args), inputs={"xception": args.xception, "timesformer": args.timesformer, "manifest": args.manifest}) as outputs:
+      with out.open("w",encoding="utf-8") as w:
         for s,(sx,st),pf in zip(shas,X,probs):
             w.write(json.dumps({
                 "asset_id": (aid.get(s) or None),
@@ -150,6 +152,7 @@ def main():
                 "model_name": "stack: logistic(xception,timesformer)",
                 "model_version": "v1",
             })+"\n")
+      outputs["fusion_predictions_lr"] = {"path": args.out}
     print(f"Wrote → {out}")
 
 if __name__=="__main__":
