@@ -79,6 +79,73 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   const [undoBuf, setUndoBuf] = useState<{ item: UploadItem; file?: File; index: number } | null>(null);
   const undoTimerRef = useRef<number | null>(null);
   const [doneToast, setDoneToast] = useState<{ id: string; name: string } | null>(null);
+  // track ongoing thumbnail generations to avoid duplicate work
+  const thumbGenRef = useRef<Record<string, boolean>>({});
+
+  // Generate a thumbnail for a video File and return a blob URL
+  async function generateVideoThumbnail(file: File, timeSec = 0.2): Promise<string> {
+    return new Promise((resolve, reject) => {
+      try {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.muted = true;
+        video.playsInline = true as any;
+        const src = URL.createObjectURL(file);
+        const cleanup = () => { try { URL.revokeObjectURL(src); } catch {} };
+        const fail = (err?: any) => { cleanup(); reject(err || new Error('thumb-failed')); };
+        video.onerror = () => fail();
+        video.onloadedmetadata = () => {
+          try {
+            const dur = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 1;
+            const t = Math.min(Math.max(0, timeSec), Math.max(0.01, dur - 0.01));
+            video.currentTime = t;
+          } catch (e) { fail(e); }
+        };
+        video.onseeked = () => {
+          try {
+            const vw = Math.max(1, video.videoWidth || 320);
+            const vh = Math.max(1, video.videoHeight || 240);
+            const targetH = 96; // small thumbnail height
+            const scale = targetH / vh;
+            const cw = Math.max(1, Math.round(vw * scale));
+            const ch = Math.max(1, Math.round(vh * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = cw; canvas.height = ch;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return fail();
+            ctx.drawImage(video, 0, 0, cw, ch);
+            canvas.toBlob((blob) => {
+              cleanup();
+              if (!blob) return fail();
+              resolve(URL.createObjectURL(blob));
+            }, 'image/jpeg', 0.82);
+          } catch (e) { fail(e); }
+        };
+        video.src = src;
+      } catch (e) { reject(e); }
+    });
+  }
+
+  // schedule thumbnail generation for a given item id and file
+  function scheduleVideoThumb(id: string, file?: File | null) {
+    if (!file || !file.type?.startsWith('video/')) return;
+    if (thumbGenRef.current[id]) return; // already generating
+    thumbGenRef.current[id] = true;
+    generateVideoThumbnail(file).then((url) => {
+      setItems(prev => prev.map(it => {
+        if (it.id !== id) return it;
+        // Only set if still same file and preview missing to avoid stale writes
+        const currentFile = filesRef.current[id] || it.file;
+        if (currentFile !== file) return it;
+        if (it.preview) return it;
+        return { ...it, preview: url };
+      }));
+    }).catch(() => {
+      // ignore failure
+    }).finally(() => {
+      thumbGenRef.current[id] = false;
+    });
+  }
 
   useEffect(() => {
     return () => {
@@ -134,7 +201,28 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
             const p = Math.max(0, Math.min(100, typeof j.percent === 'number' ? j.percent : 0));
             const stage = j.stage || '';
             const message = typeof j.message === 'string' ? j.message : '';
-            setItems(prev => prev.map(it => it.id === id ? { ...it, status: (it.status==='done'||it.status==='error'||it.status==='canceled') ? it.status : (stage==='done' ? 'done' : 'analyzing'), progress: Math.max(it.progress, Math.round(p)), stage, stageMsg: message || it.stageMsg, analyzeStartAt: it.analyzeStartAt || (stage && stage !== 'done' ? Date.now() : it.analyzeStartAt) } : it));
+            setItems(prev => prev.map(it => {
+              if (it.id !== id) return it;
+              // Derive next status conservatively to avoid flipping to analyzing during upload stages
+              let nextStatus: ItemStatus = it.status;
+              if (it.status !== 'done' && it.status !== 'error' && it.status !== 'canceled') {
+                if (stage === 'done') nextStatus = 'done';
+                else if (stage === 'processing' || stage === 'analyzing' || stage === 'running') nextStatus = 'analyzing';
+                else nextStatus = it.status; // keep as-is for 'uploading', 'queued', or unknown
+              }
+              // Manage analyzeStartAt: start when entering analyzing, clear on terminal states
+              let analyzeStartAt = it.analyzeStartAt;
+              if (!analyzeStartAt && nextStatus === 'analyzing') analyzeStartAt = Date.now();
+              if (nextStatus === 'done' || nextStatus === 'error' || nextStatus === 'canceled') analyzeStartAt = undefined;
+              return {
+                ...it,
+                status: nextStatus,
+                progress: Math.max(it.progress, Math.round(p)),
+                stage,
+                stageMsg: message || it.stageMsg,
+                analyzeStartAt,
+              };
+            }));
             if (stage === 'done') { stop(); try { delete pollStopsRef.current[id]; } catch {}; break; }
           }
         } catch {}
@@ -236,6 +324,16 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
     } catch {}
   }, [items, storageKey]);
 
+  // backfill thumbnails for restored items that are videos and missing preview
+  useEffect(() => {
+    items.forEach(it => {
+      if (!it.preview && (it.mime || '').startsWith('video/')) {
+        const f = filesRef.current[it.id] || it.file;
+        if (f) scheduleVideoThumb(it.id, f);
+      }
+    });
+  }, [items]);
+
   function onFiles(flist: FileList | null) {
     if (!flist || flist.length === 0) return;
     setGlobalError(null);
@@ -251,11 +349,13 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         const preview = f.type.startsWith('image/') ? URL.createObjectURL(f) : null;
         return { ...it, file: f, name: f.name, mime: f.type, preview, status: 'idle', progress: 0, result: null, error: null };
       }));
-      const composite = pageKey ? `${pageKey}::${replaceId}` : replaceId;
-      memoryFilesGlobal[composite] = f;
-      persistFile(composite, f);
-      replaceTargetId.current = null;
-      return;
+  const composite = pageKey ? `${pageKey}::${replaceId}` : replaceId;
+  memoryFilesGlobal[composite] = f;
+  persistFile(composite, f);
+  replaceTargetId.current = null;
+  // async thumbnail for videos
+  if (f.type.startsWith('video/')) scheduleVideoThumb(replaceId, f);
+  return;
     }
     for (let i = 0; i < flist.length; i++) {
       const f = flist[i];
@@ -276,6 +376,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         result: null,
         error: null,
       });
+      if (f.type.startsWith('video/')) scheduleVideoThumb(id, f);
     }
     setItems(prev => [...prev, ...newItems]);
   }
@@ -330,7 +431,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
       memoryFilesGlobal[composite] = file;
       try { persistFile(composite, file); } catch { /* ignore */ }
     }
-    // regenerate preview if image
+    // regenerate preview if image; schedule thumbnail if video
     const preview = file && file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
     const restored: UploadItem = { ...item, file: file || item.file, preview, status: item.status };
     setItems(prev => {
@@ -339,6 +440,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
       arr.splice(insertAt, 0, restored);
       return arr;
     });
+    if (file && file.type.startsWith('video/')) scheduleVideoThumb(item.id, file);
     // re-add analysis summary to reports if exists
     try {
       if (item.result?.summary) {
@@ -353,7 +455,8 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   }
 
   async function analyzeItem(id: string) {
-  setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'uploading', progress: 0, stage: 'uploading', stageMsg: 'Uploading file', error: null, result: null } : it));
+  // Reset timer and state for a fresh run
+  setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'uploading', progress: 0, stage: 'uploading', stageMsg: 'Uploading file', error: null, result: null, analyzeStartAt: undefined } : it));
     const item = items.find(it => it.id === id);
     if (!item) return;
     const file = filesRef.current[id] || item.file;
@@ -370,7 +473,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
       const xhr = new XMLHttpRequest();
       xhr.timeout = 10 * 60 * 1000; // 10 minutes
       // store xhr and jobId so we can cancel later and resume timer across tabs
-      setItems(prev => prev.map(it => it.id === id ? { ...it, xhr, jobId } : it));
+  setItems(prev => prev.map(it => it.id === id ? { ...it, xhr, jobId, analyzeStartAt: undefined } : it));
       // Start polling server-side progress immediately so UI reflects server stages
       startProgressPolling(id, jobId);
       await new Promise<void>((resolve, reject) => {
@@ -406,7 +509,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
           try {
             if (xhr.status >= 200 && xhr.status < 300) {
               const data = JSON.parse(xhr.responseText) as AnalysisSummary;
-              setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'done', progress: 100, stage: 'done', stageMsg: 'Completed', result: data, error: null, xhr: undefined } : it));
+              setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'done', progress: 100, stage: 'done', stageMsg: 'Completed', result: data, error: null, xhr: undefined, analyzeStartAt: undefined } : it));
               try { pollStopsRef.current[id]?.(); delete pollStopsRef.current[id]; } catch {}
               try { setDoneToast({ id, name: file.name }); setTimeout(() => setDoneToast(null), 6000); } catch {}
               // Persist summary for reports page
@@ -437,7 +540,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
     } catch (e: any) {
       // stop polling and clear xhr on error
       try { pollStopsRef.current[id]?.(); delete pollStopsRef.current[id]; } catch {}
-      setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'error', error: e.message || String(e), xhr: undefined } : it));
+      setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'error', error: e.message || String(e), xhr: undefined, analyzeStartAt: undefined } : it));
     }
   }
 
@@ -584,7 +687,15 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
                         <button className="btn" onClick={() => analyzeItem(it.id)}>
                           Re-run
                         </button>
-                        <button className="btn primary" onClick={() => navTo('reports')}>
+                        <button
+                          className="btn primary"
+                          onClick={() => {
+                            try {
+                              sessionStorage.setItem('bl_reports_focus', JSON.stringify({ id: it.id, pageKey: pageKey || 'global', ts: Date.now() }));
+                            } catch {}
+                            navTo('reports');
+                          }}
+                        >
                           View Report
                         </button>
                       </>
@@ -675,7 +786,18 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
     {doneToast ? (
       <div className="toast" role="status" aria-live="polite">
         <span>Analysis complete for {doneToast.name}.</span>
-        <button className="btn link" onClick={() => { setDoneToast(null); navTo('reports'); }}>View Report</button>
+        <button
+          className="btn link"
+          onClick={() => {
+            try {
+              sessionStorage.setItem('bl_reports_focus', JSON.stringify({ id: doneToast.id, pageKey: pageKey || 'global', ts: Date.now() }));
+            } catch {}
+            setDoneToast(null);
+            navTo('reports');
+          }}
+        >
+          View Report
+        </button>
       </div>
     ) : null}
     </>

@@ -96,15 +96,74 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(null); // for single delete via row "×"
   const [undoBuffer, setUndoBuffer] = useState<StoredAnalysisSummary[] | null>(null);
   const [undoTimer, setUndoTimer] = useState<number | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const lastCheckIndexRef = useRef<number | null>(null);
   const analysisRegionRef = useRef<HTMLDivElement | null>(null);
+  const [videoTime, setVideoTime] = useState(0);
+  const [mediaDuration, setMediaDuration] = useState<number | null>(null);
 
+  // Jump the source video to a specific time
+  const jumpToTime = React.useCallback((t: number, autoPlay = false) => {
+    const v = videoRef.current;
+    if (!v) return;
+    const target = Math.max(0, t);
+    try {
+      if (Number.isFinite(v.duration) && v.duration > 0) {
+        v.currentTime = Math.min(target, v.duration - 0.05);
+      } else {
+        const onMeta = () => {
+          v.currentTime = Math.min(target, Math.max(0, (v.duration || target) - 0.05));
+          if (!autoPlay) v.pause(); else void v.play();
+          v.removeEventListener('loadedmetadata', onMeta);
+        };
+        v.addEventListener('loadedmetadata', onMeta);
+      }
+      if (!autoPlay) v.pause(); else void v.play();
+    } catch {}
+  }, []);
+
+  // Load list for current page
   useEffect(() => {
     const list = filePage ? getAnalysesForPage(filePage) : getAllAnalyses();
-    // default sort (analyzedAt desc) applied via sort state effect below
     setAnalyses(list);
-    setCheckedIds([]); // reset selection on page change
+    setCheckedIds([]);
   }, [filePage]);
+
+  // On first render after list loads, auto-focus a requested analysis (from Uploads View Report)
+  useEffect(() => {
+    if (!analyses.length) return;
+    let hint: { id?: string; pageKey?: string; ts?: number } | null = null;
+    try {
+      const raw = sessionStorage.getItem('bl_reports_focus');
+      if (raw) hint = JSON.parse(raw);
+    } catch {}
+    if (!hint || !hint.id) return;
+    if (hint.pageKey && filePage && hint.pageKey !== filePage) return; // different filePage; ignore
+    const target = analyses.find(a => a.id === hint!.id);
+    if (!target) return;
+    setSelected(target);
+    // Scroll that row into view and add a temporary flash highlight
+    setTimeout(() => {
+      try {
+        let row: HTMLElement | null = null;
+        try {
+          const esc = (window as any).CSS && typeof (window as any).CSS.escape === 'function' ? (window as any).CSS.escape : (s: string) => s.replace(/"/g, '\\"');
+          row = document.querySelector(`.analysis-table .tbody .tr[data-id="${esc(target.id)}"]`) as HTMLElement | null;
+        } catch {}
+        if (!row) {
+          // Fallback: iterate rows and match data-id
+          const rows = Array.from(document.querySelectorAll('.analysis-table .tbody .tr')) as HTMLElement[];
+          row = rows.find(r => r.dataset && r.dataset.id === target.id) || null;
+        }
+        if (row) {
+          row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          row.classList.add('flash');
+          window.setTimeout(() => row && row.classList.remove('flash'), 1500);
+        }
+      } catch {}
+      try { sessionStorage.removeItem('bl_reports_focus'); } catch {}
+    }, 50);
+  }, [analyses, filePage]);
 
   // Close detail on click outside or Escape
   useEffect(() => {
@@ -113,11 +172,9 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
     function onClick(e: MouseEvent) {
       if (!analysisRegionRef.current) return;
       const region = analysisRegionRef.current;
-      // If click is inside the detail or table rows, ignore; else close
       if (region.contains(e.target as Node)) {
         const detail = region.querySelector('.analysis-detail');
-        if (detail && detail.contains(e.target as Node)) return; // allow internal interaction
-        // If clicked a row, keep (row handles its own selection)
+        if (detail && detail.contains(e.target as Node)) return;
         const row = (e.target as HTMLElement).closest('.analysis-table .tr');
         if (row) return;
       }
@@ -127,6 +184,12 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
     document.addEventListener('mousedown', onClick);
     return () => { document.removeEventListener('keydown', onKey); document.removeEventListener('mousedown', onClick); };
   }, [selected]);
+
+  // Reset play state when switching selection
+  useEffect(() => {
+    setVideoTime(0);
+    setMediaDuration(null);
+  }, [selected?.id, selected?.analyzedAt]);
 
   const allChecked = analyses.length>0 && checkedIds.length === analyses.length;
   function toggleCheck(id: string) {
@@ -269,12 +332,7 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
         let res = 0;
         switch (sort.key) {
           case 'file': res = a.fileName.localeCompare(b.fileName); break;
-          case 'resolution': {
-            const aR = (a.summary.width||0) * (a.summary.height||0);
-            const bR = (b.summary.width||0) * (b.summary.height||0);
-            res = cmpNums(aR,bR); break; }
           case 'duration': res = cmpNums(a.summary.duration_s||0, b.summary.duration_s||0); break;
-          case 'codec': res = (a.summary.codec||'').localeCompare(b.summary.codec||''); break;
           case 'likelihood': res = cmpNums(a.summary.deepfake_likelihood||0, b.summary.deepfake_likelihood||0); break;
           case 'label': res = (a.summary.deepfake_label||'').localeCompare(b.summary.deepfake_label||''); break;
           case 'analyzedAt': res = cmpNums(a.analyzedAt, b.analyzedAt); break;
@@ -353,9 +411,7 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                 <div className="tr" role="row">
                   <div className="th sel" role="columnheader"><input type="checkbox" aria-label="Select all" checked={allChecked} onChange={toggleAll}/></div>
                   <div className={`th sortable ${sort.key==='file' ? 'sorted '+sort.dir : ''}`} role="columnheader" {...(sort.key==='file' ? { 'aria-sort': (sort.dir==='asc'?'ascending':'descending') } : {})} onClick={()=>onSort('file')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('file'); }}}>File <span className="sort-indicator" aria-hidden="true">{sort.key==='file' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
-                  <div className={`th sortable ${sort.key==='resolution' ? 'sorted '+sort.dir : ''}`} role="columnheader" {...(sort.key==='resolution' ? { 'aria-sort': (sort.dir==='asc'?'ascending':'descending') } : {})} onClick={()=>onSort('resolution')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('resolution'); }}}>Resolution <span className="sort-indicator" aria-hidden="true">{sort.key==='resolution' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
                   <div className={`th sortable ${sort.key==='duration' ? 'sorted '+sort.dir : ''}`} role="columnheader" {...(sort.key==='duration' ? { 'aria-sort': (sort.dir==='asc'?'ascending':'descending') } : {})} onClick={()=>onSort('duration')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('duration'); }}}>Duration <span className="sort-indicator" aria-hidden="true">{sort.key==='duration' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
-                  <div className={`th sortable ${sort.key==='codec' ? 'sorted '+sort.dir : ''}`} role="columnheader" {...(sort.key==='codec' ? { 'aria-sort': (sort.dir==='asc'?'ascending':'descending') } : {})} onClick={()=>onSort('codec')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('codec'); }}}>Codec <span className="sort-indicator" aria-hidden="true">{sort.key==='codec' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
                   <div className={`th sortable ${sort.key==='likelihood' ? 'sorted '+sort.dir : ''}`} role="columnheader" {...(sort.key==='likelihood' ? { 'aria-sort': (sort.dir==='asc'?'ascending':'descending') } : {})} onClick={()=>onSort('likelihood')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('likelihood'); }}}>Deepfake Likelihood <span className="sort-indicator" aria-hidden="true">{sort.key==='likelihood' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
                   <div className={`th sortable ${sort.key==='label' ? 'sorted '+sort.dir : ''}`} role="columnheader" {...(sort.key==='label' ? { 'aria-sort': (sort.dir==='asc'?'ascending':'descending') } : {})} onClick={()=>onSort('label')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('label'); }}}>Label <span className="sort-indicator" aria-hidden="true">{sort.key==='label' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
                   <div className={`th sortable ${sort.key==='analyzedAt' ? 'sorted '+sort.dir : ''}`} role="columnheader" {...(sort.key==='analyzedAt' ? { 'aria-sort': (sort.dir==='asc'?'ascending':'descending') } : {})} onClick={()=>onSort('analyzedAt')} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); onSort('analyzedAt'); }}}>Analyzed <span className="sort-indicator" aria-hidden="true">{sort.key==='analyzedAt' ? (sort.dir==='asc'?'▲':'▼') : '↕'}</span></div>
@@ -373,12 +429,16 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                   const isChecked = checkedIds.includes(a.id);
                   const showDelete = isActive || isChecked; // show when row is active (clicked) or checkbox-selected
                   return (
-                    <div className={`tr ${flagged ? 'flagged' : ''} ${isActive ? 'active' : ''} ${showDelete ? 'has-action' : ''}`} role="row" key={a.id+"-"+a.analyzedAt} onClick={(e) => { if(!(e.target as HTMLElement).closest('.sel input')) setSelected(a); }}>
+                    <div
+                      className={`tr ${flagged ? 'flagged' : ''} ${isActive ? 'active' : ''} ${showDelete ? 'has-action' : ''}`}
+                      role="row"
+                      key={a.id+"-"+a.analyzedAt}
+                      data-id={a.id}
+                      onClick={(e) => { if(!(e.target as HTMLElement).closest('.sel input')) setSelected(a); }}
+                    >
                       <div className="td sel" role="cell"><input type="checkbox" aria-label={`Select ${a.fileName}`} checked={checkedIds.includes(a.id)} readOnly onClick={(e)=>handleCheckboxClick(e, a.id, idx)} /></div>
                       <div className="td filename" role="cell" title={a.fileName}>{a.fileName}</div>
-                      <div className="td" role="cell">{a.summary.width && a.summary.height ? `${a.summary.width}x${a.summary.height}` : '—'}</div>
                       <div className="td" role="cell">{a.summary.duration_s ? a.summary.duration_s.toFixed(2)+'s' : '—'}</div>
-                      <div className="td" role="cell">{a.summary.codec || '—'}</div>
                       <div className="td likelihood-cell" role="cell">
                         <div className={`likelihood-meter ${flagged? 'alert': ''} ${pctClass}`}> <div className="fill" /> </div>
                         <span className={`pct-text ${flagged? 'alert': ''}`}>{pct}</span>
@@ -420,6 +480,102 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                     </div>
                   </details>
                 ) : null}
+                {(() => {
+                  const stored = (selected as any)?.raw?.asset?.stored_path as string|undefined;
+                  const fs = (selected as any)?.raw?.summary?.frame_scores as Array<{ index:number; time_s:number|null; prob:number }>|undefined;
+                  const fps = (selected as any)?.raw?.summary?.frame_fps as number|undefined;
+                  if (!stored && (!fs || !fs.length)) return null;
+                  const videoSrc = stored ? `${String(API_BASE).replace(/\/$/, '')}/assets/${String(stored).replace(/^\/+/, '')}` : undefined;
+                  const maxH = 56; // px
+                  const duration = (selected.summary.duration_s as number|undefined) ?? (typeof fps==='number' && (selected as any)?.raw?.summary?.frame_total ? ((selected as any).raw.summary.frame_total / Math.max(1, fps)) : undefined);
+                  const effDuration = (mediaDuration && mediaDuration>0 ? mediaDuration : duration);
+                  return (
+                    <details className="overlay-block" open>
+                      <summary>Source video &amp; Frame likelihoods</summary>
+                      {videoSrc && (
+                        <div className="overlay-preview resizable">
+                          <video
+                            ref={videoRef}
+                            key={(stored||'')+':'+(selected?.id||'')}
+                            src={videoSrc}
+                            controls
+                            preload="metadata"
+                            playsInline
+                            className="video-fluid"
+                            onLoadedMetadata={(e)=>{ try { const d = (e.currentTarget as HTMLVideoElement).duration; if (Number.isFinite(d) && d>0) setMediaDuration(d); } catch {} }}
+                            onTimeUpdate={(e)=>{ try { setVideoTime((e.currentTarget as HTMLVideoElement).currentTime || 0); } catch {} }}
+                          />
+                        </div>
+                      )}
+                      {fs && Array.isArray(fs) && fs.length>0 && (
+                        <>
+                          <div className="frame-scores" role="list">
+                            {fs.map((f, i) => {
+                              const h = Math.max(2, Math.round((Math.max(0, Math.min(1, f.prob))) * maxH));
+                              const over = f.prob >= 0.5;
+                              const tLabel = (f.time_s!=null ? `${f.time_s.toFixed(2)}s` : (fps ? `${(f.index/Math.max(1,fps)).toFixed(2)}s` : `#${f.index}`));
+                              return (
+                                <div
+                                  key={i}
+                                  role="listitem"
+                                  className={`fs-bar ${over ? 'alert' : ''}`}
+                                  title={`Frame ${f.index} • t=${tLabel} • p=${(f.prob*100).toFixed(1)}%`}
+                                  aria-label={`Frame ${f.index}, ${tLabel}, probability ${(f.prob*100).toFixed(1)} percent`}
+                                  data-h={h}
+                                  onClick={()=>{
+                                    const fpsVal = (selected as any)?.raw?.summary?.frame_fps as number | undefined;
+                                    const fpsFallback = (selected?.summary?.fps as number | undefined);
+                                    const effFps = (typeof fpsVal==='number' && fpsVal>0) ? fpsVal : (typeof fpsFallback==='number' && fpsFallback>0 ? fpsFallback : undefined);
+                                    const tt = (f.time_s!=null ? f.time_s : (effFps ? (f.index/effFps) : undefined));
+                                    if (tt!=null) jumpToTime(tt, false);
+                                  }}
+                                />
+                              );
+                            })}
+                          </div>
+                          <div className="frame-meta">
+                            <span>samples: {fs.length}</span>
+                            {typeof fps === 'number' && fps>0 ? <span> · fps: {fps.toFixed(2)}</span> : null}
+                            <span> · <strong>blue</strong>=lower, <strong>red</strong>=higher likelihood</span>
+                            <span> · threshold ≥ 50% outlined</span>
+                          </div>
+                          {(() => {
+                            if (!effDuration) return null;
+                            const items = fs.map((f)=>{
+                              const t = f.time_s!=null ? f.time_s : (typeof fps==='number' && fps>0 ? (f.index/Math.max(1,fps)) : undefined);
+                              const leftPct = t!=null ? Math.max(0, Math.min(100, Math.round((t/effDuration)*100))) : (typeof (selected as any)?.raw?.summary?.frame_total==='number' && (selected as any).raw.summary.frame_total>0 ? Math.max(0, Math.min(100, Math.round((f.index/((selected as any).raw.summary.frame_total))*100))) : 0);
+                              const probPct = Math.max(0, Math.min(100, Math.round(f.prob*100)));
+                              const hBucket = Math.round(probPct/5)*5;
+                              return { leftPct, hBucket, idx: f.index, time: t, prob: f.prob };
+                            });
+                            const headLeft = Math.max(0, Math.min(100, Math.round((Math.max(0, videoTime) / effDuration) * 100)));
+                            return (
+                              <div className="frame-timeline" role="region" aria-label="Frame timeline">
+                                <div className="ft-base" aria-hidden="true" />
+                                <div className={`ft-head ft-p${headLeft}`} aria-hidden="true" />
+                                {items.map((it, i) => (
+                                  <button
+                                    key={i}
+                                    type="button"
+                                    className={`ft-mark ft-p${it.leftPct} h${it.hBucket} ${it.prob>=0.5?'alert':''}`}
+                                    title={`t=${it.time!=null?it.time.toFixed(2)+'s':('frame #'+it.idx)} • p=${(it.prob*100).toFixed(1)}%`}
+                                    data-tip={`${it.time!=null?it.time.toFixed(2)+'s':('frame #'+it.idx)} • ${(it.prob*100).toFixed(1)}%`}
+                                    aria-label={`Timeline marker at ${it.time!=null?it.time.toFixed(2)+' seconds':'frame '+it.idx}, probability ${(it.prob*100).toFixed(1)} percent`}
+                                    onClick={()=>{ if (it.time!=null) jumpToTime(it.time, false); }}
+                                  />
+                                ))}
+                                <div className="ft-axis" aria-hidden="true">
+                                  <span>0s</span>
+                                  <span>{effDuration.toFixed(2)}s</span>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </>
+                      )}
+                    </details>
+                  );
+                })()}
                 {selected.raw && (
                   <details className="raw-block">
                     <summary>Raw JSON</summary>

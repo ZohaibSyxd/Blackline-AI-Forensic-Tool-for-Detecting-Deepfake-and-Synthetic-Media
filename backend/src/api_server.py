@@ -40,6 +40,9 @@ from .models.df_detector import predict_deepfake
 from .models.copy_move_live import predict_copy_move_single
 from .models.lbp_live import predict_lbp_single
 from .auth import handle_login, handle_signup, get_current_user, to_public, SignupRequest
+from .db import init_db, get_db
+from . import models_db  # ensure models are imported
+from fastapi import Request
 
 DATA_ROOT = Path("backend/data")
 RAW_ROOT = DATA_ROOT / "raw"
@@ -62,6 +65,21 @@ app.add_middleware(
 DERIVED_DIR = DATA_ROOT / "derived"
 DERIVED_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(DERIVED_DIR)), name="static")
+ # Expose raw assets for video playback (dev)
+app.mount("/assets", StaticFiles(directory=str(RAW_ROOT)), name="assets")
+FRAMES_DIR = DERIVED_DIR / "frames"
+FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+
+# Initialize database on startup
+@app.on_event("startup")
+def on_startup():
+    init_db(models_module=models_db)
+    # Seed guest user
+    from .auth import ensure_seed_user
+    from sqlalchemy.orm import Session
+    for db in get_db():  # use dependency generator to get a session
+        ensure_seed_user(db)
+        break
 
 class AnalyzeResponse(BaseModel):
     asset: dict
@@ -72,6 +90,16 @@ class AnalyzeResponse(BaseModel):
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+@app.get("/api/db/health")
+def db_health():
+    # Try a simple query
+    for db in get_db():
+        try:
+            db.execute(__import__("sqlalchemy").text("SELECT 1"))
+            return {"db": "ok"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"DB error: {e}")
 
 # ---------------------- Lightweight Progress Tracking -----------------------
 def _progress_path(job_id: str) -> Path:
@@ -114,6 +142,63 @@ def signup(req: SignupRequest):
 @app.get("/api/auth/me")
 def me(user = Depends(get_current_user)):
     return {"user": to_public(user).dict()}
+
+# ------------------------- Frame Extraction -------------------------------
+@app.get("/api/frame")
+def get_frame(sha256: str, stored_path: str, index: int | None = None, time_s: float | None = None):
+    """Extract a frame as PNG and return its static URI.
+    Provide either index (frame number) or time_s (seconds).
+    stored_path is the ingest stored_path ("<sha>/<filename>").
+    """
+    try:
+        import cv2
+    except Exception:
+        raise HTTPException(status_code=500, detail="OpenCV not available for frame extraction")
+    try:
+        if not sha256 or not stored_path:
+            raise HTTPException(status_code=400, detail="sha256 and stored_path required")
+        # Build absolute video path
+        video_abs = Path(DATA_ROOT / "raw" / stored_path)
+        if not video_abs.exists():
+            raise HTTPException(status_code=404, detail="Video not found")
+        # Cache path
+        out_dir = FRAMES_DIR / sha256
+        out_dir.mkdir(parents=True, exist_ok=True)
+        key = f"idx_{index}" if index is not None else f"t_{(time_s or 0):.2f}"
+        out_path = out_dir / f"{key}.png"
+        # If already exists, return URI
+        if out_path.exists():
+            uri = f"frames/{sha256}/{out_path.name}"
+            return {"uri": uri}
+        cap = cv2.VideoCapture(str(video_abs))
+        if not cap.isOpened():
+            raise HTTPException(status_code=500, detail="Failed to open video")
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        # Resolve target frame
+        tgt = None
+        if index is not None:
+            tgt = max(0, min(total - 1 if total > 0 else index, int(index)))
+        elif time_s is not None and fps > 0:
+            tgt = int(max(0, min(total - 1 if total > 0 else 0, round(time_s * fps))))
+        else:
+            cap.release(); raise HTTPException(status_code=400, detail="Provide index or valid time_s")
+        # Seek and read
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(tgt))
+        ok, frame = cap.read()
+        cap.release()
+        if not ok or frame is None:
+            raise HTTPException(status_code=500, detail="Failed to read frame")
+        # Write PNG
+        ok = cv2.imwrite(str(out_path), frame)
+        if not ok:
+            raise HTTPException(status_code=500, detail="Failed to write frame image")
+        uri = f"frames/{sha256}/{out_path.name}"
+        return {"uri": uri}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Frame extract error: {e}")
 
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 async def analyze(file: UploadFile = File(...), model: str = Form("stub"), job_id: str = Form(None)):
@@ -194,6 +279,14 @@ async def analyze(file: UploadFile = File(...), model: str = Form("stub"), job_i
               "lbp_frames", "lbp_dim", "xception_agg_score", "timesformer_score"):
         if df_pred.get(k) is not None:
             summary[k] = df_pred[k]
+
+    # Include optional per-frame scores timeline if produced by fusion model
+    if isinstance(df_pred.get("frame_scores"), list) and df_pred.get("frame_scores"):
+        summary["frame_scores"] = df_pred["frame_scores"]
+        if df_pred.get("frame_fps") is not None:
+            summary["frame_fps"] = df_pred["frame_fps"]
+        if df_pred.get("frame_total") is not None:
+            summary["frame_total"] = df_pred["frame_total"]
 
     _write_progress(job_id, "done", 100, "Completed")
     return AnalyzeResponse(asset=ingest_rec, validate=validate_rec, probe=probe_rec, summary=summary)
