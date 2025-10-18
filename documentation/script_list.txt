@@ -54,12 +54,18 @@ python -m backend.src.build_clips_jsonl `
 # 6) Normalize frames & compute quality metrics
 # Standardize to 299x299, compute blur/brightness/pHash, optional face crops
 python -m backend.src.normalize_frames `
-  --frames       .\backend\data\derived\frames.jsonl `
-  --frames-root  .\backend\data\derived\frames `
-  --out          .\backend\data\derived\frames_normalized.jsonl `
+  --frames .\backend\data\derived\frames.jsonl `
+  --frames-root .\backend\data\derived\frames `
+  --out .\backend\data\derived\frames_normalized.jsonl `
   --normalized-root .\backend\data\derived\normalized `
   --target-size 299 `
-  --extract-faces
+  --extract-faces `
+  --min-face 48 `
+  --det-scale 1.6 `
+  --face-margin 0.30 `
+  --max-faces 2 `
+  --haar-scale-factor 1.06 `
+  --haar-min-neighbors 3
 
 # 7) Build manifest CSV (labels + probe/validate summaries)
 python -m backend.src.build_manifest `
