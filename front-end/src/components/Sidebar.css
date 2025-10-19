@@ -1,5 +1,7 @@
 .sidebar {
   width: var(--sidebar-width, 300px);
+  /* lock flex-basis so content cannot expand the sidebar width */
+  flex: 0 0 var(--sidebar-width, 300px);
   height: 100vh; /* keep sidebar fixed to viewport height */
   height: 100dvh; /* prefer dynamic viewport to avoid off-by-1 on some platforms */
   background: #fff;
@@ -292,6 +294,21 @@ body.sidebar-resizing-global, body.sidebar-resizing-global * {
   box-sizing: border-box;
   padding-right: 16px; /* smaller right reserve so label has more room */
 }
+
+/* dashboard button reuses home-replace-button; keep spacing consistent */
+.dashboard-button { margin-top: 6px; margin-bottom: 10px; }
+/* Align the dashboard boxed button with NEW ANALYSIS despite .sidebar-nav padding (24px). */
+.sidebar-nav .dashboard-button { margin-left: -4px; margin-right: -4px; }
+
+/* Make the Dashboard icon square match the NEW ANALYSIS '+' size */
+.dashboard-button .home-add-icon {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  border-radius: 8px;
+  font-size: 18px; /* ensure emoji visual size matches '+' */
+}
 /* Allow the NEW ANALYSIS button to shrink during live resizing to avoid overflow */
 .sidebar.resizing .home-replace-button { min-width: 0; }
 .home-replace-button .home-add-icon { width:34px; height:34px; border-radius:8px; background:#fff; display:inline-flex; align-items:center; justify-content:center; font-weight:700; }
@@ -563,6 +580,15 @@ body.sidebar-resizing-global, body.sidebar-resizing-global * {
   white-space: nowrap;
   min-width: 88px; /* ensure label keeps readable length */
   flex: 0 0 auto; /* do not shrink further */
+}
+
+/* Dashboard pill: allow label to use more width (reduce truncation) */
+.dashboard-pill .new-bubble {
+  max-width: none; /* show full label */
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+  font-weight: 700; /* subtle emphasis */
 }
 
 /* Dark mode: make NEW ANALYSIS pill black with white text */

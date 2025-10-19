@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import "./Reports.css";
 import { getAnalysesForPage, getAllAnalyses, StoredAnalysisSummary, deleteAnalyses, upsertAnalysis } from '../state/analysisStore';
 import { removeFile as removePersistedFile } from '../utils/uploadPersistence';
+import { getPlaybackUrl } from '../utils/assetsApi';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || "http://localhost:8000";
 
@@ -462,8 +463,6 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                 <div className="detail-grid">
                   <div><span className="k">Resolution</span><span className="v">{selected.summary.width && selected.summary.height ? `${selected.summary.width}x${selected.summary.height}` : '—'}</span></div>
                   <div><span className="k">FPS</span><span className="v">{selected.summary.fps ?? '—'}</span></div>
-                  <div><span className="k">Duration</span><span className="v">{selected.summary.duration_s ? selected.summary.duration_s.toFixed(2)+'s' : '—'}</span></div>
-                  <div><span className="k">Codec</span><span className="v">{selected.summary.codec || '—'}</span></div>
                   <div><span className="k">Format Valid</span><span className="v">{String(selected.summary.format_valid)}</span></div>
                   <div><span className="k">Decode Valid</span><span className="v">{String(selected.summary.decode_valid)}</span></div>
                   <div><span className="k">Deepfake %</span><span className="v">{((selected.summary.deepfake_likelihood||0)*100).toFixed(2)}%</span></div>
@@ -481,34 +480,58 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                   </details>
                 ) : null}
                 {(() => {
-                  const stored = (selected as any)?.raw?.asset?.stored_path as string|undefined;
+                  const rawAsset = (selected as any)?.raw?.asset as any;
+                  const stored = rawAsset?.stored_path as string|undefined;
+                  const assetId = rawAsset?.asset_id as number|undefined;
                   const fs = (selected as any)?.raw?.summary?.frame_scores as Array<{ index:number; time_s:number|null; prob:number }>|undefined;
                   const fps = (selected as any)?.raw?.summary?.frame_fps as number|undefined;
                   if (!stored && (!fs || !fs.length)) return null;
-                  const videoSrc = stored ? `${String(API_BASE).replace(/\/$/, '')}/assets/${String(stored).replace(/^\/+/, '')}` : undefined;
+                  const [videoSrc, setVideoSrc] = React.useState<string | undefined>(undefined);
+                  React.useEffect(() => {
+                    let canceled = false;
+                    (async () => {
+                      try {
+                        if (assetId) {
+                          const url = await getPlaybackUrl(assetId);
+                          if (!canceled) setVideoSrc(url);
+                          return;
+                        }
+                        if (stored) {
+                          const url = `${String(API_BASE).replace(/\/$/, '')}/assets/${String(stored).replace(/^\/+/, '')}`;
+                          if (!canceled) setVideoSrc(url);
+                        } else {
+                          if (!canceled) setVideoSrc(undefined);
+                        }
+                      } catch {
+                        if (!canceled) setVideoSrc(undefined);
+                      }
+                    })();
+                    return () => { canceled = true; };
+                  }, [assetId, stored, selected?.id]);
                   const maxH = 56; // px
                   const duration = (selected.summary.duration_s as number|undefined) ?? (typeof fps==='number' && (selected as any)?.raw?.summary?.frame_total ? ((selected as any).raw.summary.frame_total / Math.max(1, fps)) : undefined);
                   const effDuration = (mediaDuration && mediaDuration>0 ? mediaDuration : duration);
                   return (
                     <details className="overlay-block" open>
                       <summary>Source video &amp; Frame likelihoods</summary>
-                      {videoSrc && (
-                        <div className="overlay-preview resizable">
-                          <video
-                            ref={videoRef}
-                            key={(stored||'')+':'+(selected?.id||'')}
-                            src={videoSrc}
-                            controls
-                            preload="metadata"
-                            playsInline
-                            className="video-fluid"
-                            onLoadedMetadata={(e)=>{ try { const d = (e.currentTarget as HTMLVideoElement).duration; if (Number.isFinite(d) && d>0) setMediaDuration(d); } catch {} }}
-                            onTimeUpdate={(e)=>{ try { setVideoTime((e.currentTarget as HTMLVideoElement).currentTime || 0); } catch {} }}
-                          />
-                        </div>
-                      )}
-                      {fs && Array.isArray(fs) && fs.length>0 && (
-                        <>
+                      <div className="overlay-content">
+                        {videoSrc && (
+                          <div className="overlay-preview resizable">
+                            <video
+                              ref={videoRef}
+                              key={(stored||'')+':'+(selected?.id||'')}
+                              src={videoSrc}
+                              controls
+                              preload="metadata"
+                              playsInline
+                              className="video-fluid"
+                              onLoadedMetadata={(e)=>{ try { const d = (e.currentTarget as HTMLVideoElement).duration; if (Number.isFinite(d) && d>0) setMediaDuration(d); } catch {} }}
+                              onTimeUpdate={(e)=>{ try { setVideoTime((e.currentTarget as HTMLVideoElement).currentTime || 0); } catch {} }}
+                            />
+                          </div>
+                        )}
+                        {fs && Array.isArray(fs) && fs.length>0 && (
+                          <>
                           <div className="frame-scores" role="list">
                             {fs.map((f, i) => {
                               const h = Math.max(2, Math.round((Math.max(0, Math.min(1, f.prob))) * maxH));
@@ -571,8 +594,9 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                               </div>
                             );
                           })()}
-                        </>
-                      )}
+                          </>
+                        )}
+                      </div>
                     </details>
                   );
                 })()}

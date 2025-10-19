@@ -20,7 +20,15 @@ from passlib.context import CryptContext
 from jose import jwt, JWTError
 try:
     from dotenv import load_dotenv  # type: ignore
+    from pathlib import Path
+    # Load default .env (current working directory or parents)
     load_dotenv()
+    # Also attempt to load backend/.env (when running from repo root)
+    here = Path(__file__).resolve()
+    backend_dir = here.parents[1]  # backend/
+    backend_env = backend_dir / ".env"
+    if backend_env.exists():
+        load_dotenv(dotenv_path=str(backend_env), override=False)
 except Exception:
     pass
 from sqlalchemy.orm import Session
@@ -111,7 +119,7 @@ class SignupResponse(BaseModel):
     token: str
 
 
-def handle_signup(req: SignupRequest, db: Session = Depends(get_db)):
+def handle_signup(req: SignupRequest, db: Session):
     # Unique checks
     if db.query(User).filter(User.username == req.username).first() is not None:
         raise HTTPException(status_code=400, detail="Username already exists")

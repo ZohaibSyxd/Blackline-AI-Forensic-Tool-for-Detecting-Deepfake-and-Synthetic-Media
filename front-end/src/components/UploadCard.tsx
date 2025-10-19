@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { persistFile, loadFile, removeFile as removePersistedFile } from '../utils/uploadPersistence';
 import { upsertAnalysis, deleteAnalyses } from '../state/analysisStore';
 import "./UploadCard.css";
+import { analyzeAsset as analyzeAssetById, getUploadUrl, confirmUpload } from '../utils/assetsApi';
+import { getAuthState } from '../state/authStore';
 
 const ACCEPT = ".jpg,.jpeg,.png,.gif,.mp4,.avi";
 
@@ -455,8 +457,8 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   }
 
   async function analyzeItem(id: string) {
-  // Reset timer and state for a fresh run
-  setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'uploading', progress: 0, stage: 'uploading', stageMsg: 'Uploading file', error: null, result: null, analyzeStartAt: undefined } : it));
+    // Reset timer and state for a fresh run
+    setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'uploading', progress: 0, stage: 'uploading', stageMsg: 'Uploading file', error: null, result: null, analyzeStartAt: undefined } : it));
     const item = items.find(it => it.id === id);
     if (!item) return;
     const file = filesRef.current[id] || item.file;
@@ -464,81 +466,87 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
       setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'error', error: 'File not attached. Use Replace to reattach the file.' } : it));
       return;
     }
+    const jobId = `${id}-${Math.random().toString(36).slice(2,8)}`;
     try {
-  const form = new FormData();
-      form.append('file', file);
-  form.append('model', model);
-  const jobId = `${id}-${Math.random().toString(36).slice(2,8)}`;
-  form.append('job_id', jobId);
-      const xhr = new XMLHttpRequest();
-      xhr.timeout = 10 * 60 * 1000; // 10 minutes
-      // store xhr and jobId so we can cancel later and resume timer across tabs
-  setItems(prev => prev.map(it => it.id === id ? { ...it, xhr, jobId, analyzeStartAt: undefined } : it));
-      // Start polling server-side progress immediately so UI reflects server stages
-      startProgressPolling(id, jobId);
-      await new Promise<void>((resolve, reject) => {
-        xhr.upload.onprogress = (ev) => {
-          if (ev.lengthComputable) {
-            const pct = Math.round((ev.loaded / ev.total) * 100);
-            setItems(prev => prev.map(it => it.id === id ? { ...it, progress: pct } : it));
-            if (pct >= 100) {
-              // Switch to analyzing as soon as upload finishes from client side
-              setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', stage: 'processing', stageMsg: 'Processing on server', analyzeStartAt: it.analyzeStartAt || Date.now() } : it));
+      const token = getAuthState().token;
+      if (token) {
+        // Use S3 presigned upload + confirm + analyze-by-asset
+        setItems(prev => prev.map(it => it.id === id ? { ...it, jobId } : it));
+        // Start polling progress emitted by backend analyze/asset
+        startProgressPolling(id, jobId);
+        // 1) get upload url
+        const { key, upload_url, headers } = await getUploadUrl(file.name, file.type || 'application/octet-stream');
+        const h = new Headers(headers || {});
+        if (!h.get('Content-Type')) h.set('Content-Type', file.type || 'application/octet-stream');
+        // 2) PUT to S3
+        const putRes = await fetch(upload_url, { method: 'PUT', headers: h, body: file });
+        if (!putRes.ok) throw new Error(`Upload failed: ${putRes.status}`);
+        // 3) confirm
+        const asset = await confirmUpload(key, file.name, file.type || undefined);
+        // 4) analyze by asset id (includes job id for progress)
+        setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', progress: Math.max(it.progress, 100), stage: 'processing', stageMsg: 'Processing on server', analyzeStartAt: it.analyzeStartAt || Date.now() } : it));
+        const data = await analyzeAssetById(asset.id, model, jobId);
+        setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'done', progress: 100, stage: 'done', stageMsg: 'Completed', result: data, error: null, xhr: undefined, analyzeStartAt: undefined } : it));
+        try { pollStopsRef.current[id]?.(); delete pollStopsRef.current[id]; } catch {}
+        try { setDoneToast({ id, name: file.name }); setTimeout(() => setDoneToast(null), 6000); } catch {}
+        // Persist summary for reports page
+        try {
+          const page = pageKey || 'global';
+          upsertAnalysis({ id, pageKey: page, fileName: file.name, mime: file.type, analyzedAt: Date.now(), summary: data.summary || {}, raw: data });
+        } catch {}
+      } else {
+        // Fallback to legacy in-app upload and analyze (local dev, unauthenticated)
+        const form = new FormData();
+        form.append('file', file);
+        form.append('model', model);
+        form.append('job_id', jobId);
+        const xhr = new XMLHttpRequest();
+        xhr.timeout = 10 * 60 * 1000;
+        setItems(prev => prev.map(it => it.id === id ? { ...it, xhr, jobId, analyzeStartAt: undefined } : it));
+        startProgressPolling(id, jobId);
+        await new Promise<void>((resolve, reject) => {
+          xhr.upload.onprogress = (ev) => {
+            if (ev.lengthComputable) {
+              const pct = Math.round((ev.loaded / ev.total) * 100);
+              setItems(prev => prev.map(it => it.id === id ? { ...it, progress: pct } : it));
+              if (pct >= 100) {
+                setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', stage: 'processing', stageMsg: 'Processing on server', analyzeStartAt: it.analyzeStartAt || Date.now() } : it));
+              }
             }
-          }
-        };
-        xhr.upload.onload = () => {
-          // Upload complete; move to analyzing while waiting for server processing/headers
-          setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', progress: 100, stage: 'processing', stageMsg: 'Processing on server', analyzeStartAt: it.analyzeStartAt || Date.now() } : it));
-        };
-        xhr.onloadstart = () => {
-          setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'uploading' } : it));
-        };
-        xhr.onreadystatechange = () => {
-          // When upload finishes but before response ready, mark analyzing
-          if (xhr.readyState === 2 || xhr.readyState === 3) {
-            setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', stage: 'processing', stageMsg: 'Processing on server', analyzeStartAt: it.analyzeStartAt || Date.now() } : it));
-          }
-        };
-        xhr.ontimeout = () => {
-          reject(new Error('Request timed out. The server is taking too long to process the file.'));
-        };
-        xhr.onerror = () => reject(new Error('Network error'));
-        xhr.onabort = () => reject(new Error('canceled'));
-        xhr.onload = () => {
-          try {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              const data = JSON.parse(xhr.responseText) as AnalysisSummary;
-              setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'done', progress: 100, stage: 'done', stageMsg: 'Completed', result: data, error: null, xhr: undefined, analyzeStartAt: undefined } : it));
-              try { pollStopsRef.current[id]?.(); delete pollStopsRef.current[id]; } catch {}
-              try { setDoneToast({ id, name: file.name }); setTimeout(() => setDoneToast(null), 6000); } catch {}
-              // Persist summary for reports page
-              try {
-                const page = pageKey || 'global';
-                upsertAnalysis({
-                  id,
-                  pageKey: page,
-                  fileName: file.name,
-                  mime: file.type,
-                  analyzedAt: Date.now(),
-                  summary: data.summary || {},
-                  raw: data
-                });
-              } catch {/* swallow */}
-              resolve();
-            } else {
-              reject(new Error(`Server ${xhr.status}: ${xhr.responseText}`));
+          };
+          xhr.upload.onload = () => {
+            setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', progress: 100, stage: 'processing', stageMsg: 'Processing on server', analyzeStartAt: it.analyzeStartAt || Date.now() } : it));
+          };
+          xhr.onloadstart = () => setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'uploading' } : it));
+          xhr.onreadystatechange = () => { if (xhr.readyState === 2 || xhr.readyState === 3) setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', stage: 'processing', stageMsg: 'Processing on server', analyzeStartAt: it.analyzeStartAt || Date.now() } : it)); };
+          xhr.ontimeout = () => reject(new Error('Request timed out. The server is taking too long to process the file.'));
+          xhr.onerror = () => reject(new Error('Network error'));
+          xhr.onabort = () => reject(new Error('canceled'));
+          xhr.onload = () => {
+            try {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                const data = JSON.parse(xhr.responseText) as AnalysisSummary;
+                setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'done', progress: 100, stage: 'done', stageMsg: 'Completed', result: data, error: null, xhr: undefined, analyzeStartAt: undefined } : it));
+                try { pollStopsRef.current[id]?.(); delete pollStopsRef.current[id]; } catch {}
+                try { setDoneToast({ id, name: file.name }); setTimeout(() => setDoneToast(null), 6000); } catch {}
+                try {
+                  const page = pageKey || 'global';
+                  upsertAnalysis({ id, pageKey: page, fileName: file.name, mime: file.type, analyzedAt: Date.now(), summary: data.summary || {}, raw: data });
+                } catch {}
+                resolve();
+              } else {
+                reject(new Error(`Server ${xhr.status}: ${xhr.responseText}`));
+              }
+            } catch (e: any) {
+              reject(new Error(e.message || 'Invalid JSON response'));
             }
-          } catch (e: any) {
-            reject(new Error(e.message || 'Invalid JSON response'));
-          }
-        };
-        xhr.open('POST', `${API_BASE}/api/analyze`);
-        xhr.send(form);
-      });
-  // Ensure we stop polling when analysis completes or errors via the helper's timeout
+          };
+          xhr.open('POST', `${API_BASE}/api/analyze`);
+          xhr.send(form);
+        });
+      }
+      // Ensure we stop polling when analysis completes or errors via the helper's timeout
     } catch (e: any) {
-      // stop polling and clear xhr on error
       try { pollStopsRef.current[id]?.(); delete pollStopsRef.current[id]; } catch {}
       setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'error', error: e.message || String(e), xhr: undefined, analyzeStartAt: undefined } : it));
     }

@@ -242,6 +242,16 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
       <nav className="sidebar-nav">
         {collapsed ? (
           <div className="collapsed-icon-list">
+            {/* Fixed Dashboard entry (not draggable/deletable) */}
+            <button
+              key="__dashboard_fixed"
+              className={`collapsed-icon-btn${active === 'dashboard' ? ' active' : ''}`}
+              title="Dashboard"
+              aria-label="Dashboard"
+              onClick={() => onNavigate('dashboard')}
+            >
+              <span className="sidebar-item-icon" aria-hidden>🏠</span>
+            </button>
             {displayedPages.map(item => (
               <button
                 key={item.key}
@@ -264,6 +274,17 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
             const toIndex = destination.index;
             onReorder && onReorder(fromKey, toIndex);
           }}>
+            {/* Fixed Dashboard entry (boxed like NEW ANALYSIS, not part of droppable/draggable list) */}
+            <button
+              className={`home-replace-button dashboard-button${active === 'dashboard' ? ' active' : ''}`}
+              aria-label="Open Dashboard"
+              onClick={() => onNavigate('dashboard')}
+            >
+              <span className="home-replace-inline dashboard-pill">
+                <span className="home-add-icon" aria-hidden>🏠</span>
+                <span className="new-bubble">DASHBOARD</span>
+              </span>
+            </button>
             <Droppable droppableId="sidebar-pages">
               {(provided) => (
                 <div ref={provided.innerRef} {...provided.droppableProps}>
@@ -421,6 +442,17 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
           </DragDropContext>
         ) : (
           <div>
+            {/* Always show fixed Dashboard at the top (boxed), even when searching */}
+            <button
+              className={`home-replace-button dashboard-button${active === 'dashboard' ? ' active' : ''}`}
+              aria-label="Open Dashboard"
+              onClick={() => onNavigate('dashboard')}
+            >
+              <span className="home-replace-inline dashboard-pill">
+                <span className="home-add-icon" aria-hidden>🏠</span>
+                <span className="new-bubble">DASHBOARD</span>
+              </span>
+            </button>
             {/* bulk action bar shown when there are selected items */}
             {selectedKeys.length > 0 && (
               <div className="sidebar-bulk-bar">

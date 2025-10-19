@@ -29,7 +29,7 @@ except Exception:
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./backend/data/dev.db")
 
-# For SQLite, need check_same_thread
+# For SQLite, need check_same_thread 
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}

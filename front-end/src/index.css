@@ -4,15 +4,18 @@
 
 .app-layout {
   display: flex;
+  height: 100vh;        /* lock to viewport height */
+  height: 100dvh;       /* account for dynamic viewport on mobile */
+  overflow: hidden;     /* prevent body scrolling; main-content will scroll instead */
 }
 
 .main-content {
   flex: 1 1 auto;
-  min-height: 100vh;
-  min-height: 100dvh; /* align with sidebar dynamic viewport height */
+  height: 100vh;        /* scroll within main only */
+  height: 100dvh;
   background: #ffffff; /* switched to white page area */
   color: #111827; /* dark text for readability */
-  overflow: auto;
+  overflow: auto;       /* independent scrolling */
   padding: 18px 28px 20px; /* slightly reduced top/bottom to better align with sidebar */
   box-sizing: border-box;
 }
