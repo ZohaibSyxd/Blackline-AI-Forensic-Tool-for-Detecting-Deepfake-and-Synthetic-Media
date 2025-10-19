@@ -67,7 +67,7 @@ const ProfilePopup: React.FC<Props> = ({ open, onClose, user }) => {
         <div className={`pp-badge ${u.plan === 'Premium' ? 'premium' : 'guest'}`}>{u.plan}</div>
       </div>
       <div className="pp-actions">
-        <button className="pp-btn" onClick={() => { setProfileOpen(true); onClose(); }}>{auth.user ? 'Account' : 'View profile'}</button>
+        <button className="pp-btn" onClick={() => { setProfileOpen(true); onClose(); }}>{auth.user ? 'View Profile' : 'View Profile'}</button>
         {auth.user ? (
           <button className="pp-btn ghost" onClick={() => { logout(); onClose(); }}>Sign out</button>
         ) : (

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { subscribe, getAuthState, login as authLogin, signup as authSignup } from '../state/authStore';
+import { listAssets } from '../utils/assetsApi';
 import { createPortal } from 'react-dom';
 import './ProfileModal.css';
 
@@ -36,21 +37,50 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose, user, onLogi
   if (!target) return null;
 
   const [auth, setAuth] = useState(getAuthState());
+  const hadUserRef = useRef<boolean>(!!getAuthState().user);
   useEffect(() => { const unsub = subscribe(setAuth); return () => { unsub(); }; }, []);
-  const isGuest = (auth.user ? auth.user.plan : user.plan) === 'Guest';
+  // Treat only unauthenticated users as guests; authenticated users see details even if plan is "Guest"
+  const isGuest = !auth.user;
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [form, setForm] = useState({ username: '', email: '', password: '' });
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Auto-close when authenticated (non-guest) or user object present
-    if (auth.user) {
-      // give a tiny delay for visual feedback
+    // Auto-close only after a successful login/signup transition (from no user to user)
+    if (auth.user && !hadUserRef.current) {
       const t = setTimeout(() => { onClose(); }, 400);
       return () => clearTimeout(t);
     }
   }, [auth.user, onClose]);
+
+  // Stats for authenticated users
+  const [analysisCount, setAnalysisCount] = useState<number>(0);
+  const [storageBytes, setStorageBytes] = useState<number>(0);
+  useEffect(() => {
+    let alive = true;
+    async function loadStats() {
+      try {
+        if (isGuest) return;
+        const rows = await listAssets();
+        if (!alive) return;
+        setAnalysisCount(rows.length);
+        const bytes = rows.reduce((sum, r) => sum + (typeof r.size_bytes === 'number' ? r.size_bytes : 0), 0);
+        setStorageBytes(bytes);
+      } catch { /* ignore */ }
+    }
+    loadStats();
+    return () => { alive = false; };
+  }, [isGuest]);
+
+  function fmtBytes(n: number) {
+    if (!n) return '0 B';
+    const units = ['B','KB','MB','GB','TB'];
+    let i = 0; let v = n;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+  }
+  const memberSince = auth.user?.created_at ? new Date(auth.user.created_at * 1000) : undefined;
 
   async function handleAuth(action: 'login' | 'signup') {
     setPending(true); setError(null);
@@ -113,11 +143,11 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ open, onClose, user, onLogi
           ) : (
             <>
               <div className="pm-stats-grid">
-                <div className="pm-stat"><span className="k">Analyses</span><span className="v">—</span></div>
-                <div className="pm-stat"><span className="k">Storage Used</span><span className="v">—</span></div>
-                <div className="pm-stat"><span className="k">Member Since</span><span className="v">—</span></div>
+                <div className="pm-stat"><span className="k">Analyses</span><span className="v">{analysisCount}</span></div>
+                <div className="pm-stat"><span className="k">Storage Used</span><span className="v">{fmtBytes(storageBytes)}</span></div>
+                <div className="pm-stat"><span className="k">Member Since</span><span className="v">{memberSince ? memberSince.toLocaleDateString() : '—'}</span></div>
               </div>
-              <p className="pm-blurb">Profile overview and usage metrics will appear here.</p>
+              <p className="pm-blurb">Manage your profile and see usage for your uploads and analyses.</p>
               <div className="pm-actions-inline">
                 <button className="pm-btn" onClick={onSignOut}>Sign out</button>
               </div>

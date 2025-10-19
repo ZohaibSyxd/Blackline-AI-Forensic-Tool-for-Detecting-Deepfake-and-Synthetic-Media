@@ -225,19 +225,8 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
         </button>
       </div>
   {/* top area intentionally kept minimal (logo above). Profile and settings moved to the footer below the search */}
-      {/* render NEW ANALYSIS button depending on collapsed state */}
-      {!collapsed ? (
-        <div className="home-container">
-          <button className="home-replace-button" onClick={() => { onAddPage && onAddPage(); }}>
-            <span className="home-add-icon" aria-hidden>+</span>
-            <span className="new-bubble">NEW ANALYSIS</span>
-          </button>
-        </div>
-      ) : (
-        <div className="home-compact">
-          <button className="home-compact-btn" onClick={() => { onAddPage && onAddPage(); }} title="New analysis" aria-label="New analysis">+</button>
-        </div>
-      )}
+      {/* In collapsed state, render compact actions inside the icon list below (keep header minimal) */}
+      {collapsed ? null : null}
 
       <nav className="sidebar-nav">
         {collapsed ? (
@@ -251,6 +240,16 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
               onClick={() => onNavigate('dashboard')}
             >
               <span className="sidebar-item-icon" aria-hidden>🏠</span>
+            </button>
+            {/* NEW ANALYSIS compact action under Dashboard in collapsed view */}
+            <button
+              key="__newanalysis_compact"
+              className="collapsed-icon-btn"
+              title="New analysis"
+              aria-label="New analysis"
+              onClick={() => { onAddPage && onAddPage(); }}
+            >
+              <span className="sidebar-item-icon" aria-hidden>+</span>
             </button>
             {displayedPages.map(item => (
               <button
@@ -274,7 +273,7 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
             const toIndex = destination.index;
             onReorder && onReorder(fromKey, toIndex);
           }}>
-            {/* Fixed Dashboard entry (boxed like NEW ANALYSIS, not part of droppable/draggable list) */}
+            {/* Fixed Dashboard entry (boxed, not part of droppable/draggable list) */}
             <button
               className={`home-replace-button dashboard-button${active === 'dashboard' ? ' active' : ''}`}
               aria-label="Open Dashboard"
@@ -285,6 +284,13 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
                 <span className="new-bubble">DASHBOARD</span>
               </span>
             </button>
+            {/* NEW ANALYSIS button placed under Dashboard */}
+            <button className="home-replace-button" onClick={() => { onAddPage && onAddPage(); }}>
+              <span className="home-add-icon" aria-hidden>+</span>
+              <span className="new-bubble">NEW ANALYSIS</span>
+            </button>
+            {/* Visual separator between actions and the file list */}
+            <div className="sidebar-separator" />
             <Droppable droppableId="sidebar-pages">
               {(provided) => (
                 <div ref={provided.innerRef} {...provided.droppableProps}>
@@ -453,6 +459,13 @@ const Sidebar: React.FC<SidebarProps> = ({ active, onNavigate, onAddPage, onDele
                 <span className="new-bubble">DASHBOARD</span>
               </span>
             </button>
+            {/* NEW ANALYSIS button placed under Dashboard */}
+            <button className="home-replace-button" onClick={() => { onAddPage && onAddPage(); }}>
+              <span className="home-add-icon" aria-hidden>+</span>
+              <span className="new-bubble">NEW ANALYSIS</span>
+            </button>
+            {/* Visual separator between actions and the search results */}
+            <div className="sidebar-separator" />
             {/* bulk action bar shown when there are selected items */}
             {selectedKeys.length > 0 && (
               <div className="sidebar-bulk-bar">

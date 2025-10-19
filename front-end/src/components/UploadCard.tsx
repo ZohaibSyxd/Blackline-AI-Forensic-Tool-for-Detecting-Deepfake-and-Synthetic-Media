@@ -608,7 +608,6 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         <div className="upload-header">
           <div className="upload-header-text">
             <h3>Upload Media for Analysis</h3>
-            <p className="muted">Drag & drop image or video here — you can select multiple files</p>
           </div>
           <div className="upload-header-actions">
             <select

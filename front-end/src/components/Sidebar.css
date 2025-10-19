@@ -294,11 +294,19 @@ body.sidebar-resizing-global, body.sidebar-resizing-global * {
   box-sizing: border-box;
   padding-right: 16px; /* smaller right reserve so label has more room */
 }
+/* hover/active styles for boxed buttons (Dashboard & New Analysis) */
+.home-replace-button:hover { background: #f5f6fa; border-color: #e5e7eb; }
+.home-replace-button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus-ring); }
+.home-replace-button.active { background: var(--accent-50); border-color: var(--accent-100); }
 
 /* dashboard button reuses home-replace-button; keep spacing consistent */
-.dashboard-button { margin-top: 6px; margin-bottom: 10px; }
+.dashboard-button { margin-top: 6px; margin-bottom: 4px; }
 /* Align the dashboard boxed button with NEW ANALYSIS despite .sidebar-nav padding (24px). */
 .sidebar-nav .dashboard-button { margin-left: -4px; margin-right: -4px; }
+/* Ensure any boxed "home-replace-button" inside the nav aligns with 20px gutters */
+.sidebar-nav .home-replace-button { margin-left: -4px; margin-right: -4px; }
+/* Tighten vertical gap between Dashboard and New Analysis */
+.sidebar-nav .dashboard-button + .home-replace-button { margin-top: 4px; }
 
 /* Make the Dashboard icon square match the NEW ANALYSIS '+' size */
 .dashboard-button .home-add-icon {
@@ -309,6 +317,17 @@ body.sidebar-resizing-global, body.sidebar-resizing-global * {
   border-radius: 8px;
   font-size: 18px; /* ensure emoji visual size matches '+' */
 }
+
+/* subtle visual separator between Dashboard and NEW ANALYSIS */
+.sidebar-separator {
+  height: 1px;
+  width: calc(var(--sidebar-width, 300px) - 40px);
+  margin: 6px 20px; /* match horizontal gutters */
+  background: #eef0f6;
+  border-radius: 1px;
+}
+/* Align separator with the boxed buttons when placed inside .sidebar-nav */
+.sidebar-nav .sidebar-separator { margin-left: -4px; margin-right: -4px; }
 /* Allow the NEW ANALYSIS button to shrink during live resizing to avoid overflow */
 .sidebar.resizing .home-replace-button { min-width: 0; }
 .home-replace-button .home-add-icon { width:34px; height:34px; border-radius:8px; background:#fff; display:inline-flex; align-items:center; justify-content:center; font-weight:700; }
