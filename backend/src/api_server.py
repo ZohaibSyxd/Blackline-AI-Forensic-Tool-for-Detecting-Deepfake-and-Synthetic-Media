@@ -95,6 +95,34 @@ def on_startup():
         ensure_seed_user(db)
         break
 
+@app.get("/status")
+def get_status():
+    """
+    Returns the status of the server environment.
+    """
+    import torch
+    import torchvision
+
+    status = {
+        "torch_version": torch.__version__,
+        "torchvision_version": torchvision.__version__,
+        "cuda_available": torch.cuda.is_available(),
+    }
+    if status["cuda_available"]:
+        status.update({
+            "cuda_device_count": torch.cuda.device_count(),
+            "cuda_current_device": torch.cuda.current_device(),
+            "cuda_device_name": torch.cuda.get_device_name(torch.cuda.current_device()),
+        })
+    else:
+        status.update({
+            "cuda_device_count": 0,
+            "cuda_current_device": None,
+            "cuda_device_name": None,
+        })
+    return status
+
+
 class AnalyzeResponse(BaseModel):
     asset: dict
     validate: dict | None
