@@ -143,22 +143,42 @@ def _sample_frames_video_with_meta(vpath: Path, num: int) -> Tuple[List[Image.Im
     if not cap.isOpened():
         return [], [], 0.0, 0
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    if total <= 0:
-        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
-        cap.release(); return [], [], fps, total
-    import numpy as np
-    idxs = np.linspace(0, total - 1, num=num, dtype=int)
-    out: List[Image.Image] = []
-    for i in idxs:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
-        ok, frame = cap.read()
-        if not ok:
-            continue
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        out.append(Image.fromarray(frame))
     fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+    out: List[Image.Image] = []
+    idxs: List[int] = []
+    if total > 0:
+        import numpy as np
+        samp = np.linspace(0, total - 1, num=num, dtype=int)
+        for i in samp:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            out.append(Image.fromarray(frame))
+            idxs.append(int(i))
+    else:
+        # Some OpenCV backends don't report frame count; fall back to sequential sampling.
+        # Read frames with a simple stride until we collect `num` frames or hit EOF.
+        stride = max(1, int(round(fps / 2.0))) if fps and fps > 0 else 5
+        current_index = 0
+        while len(out) < num:
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                break
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            out.append(Image.fromarray(frame_rgb))
+            idxs.append(current_index)
+            # Skip `stride-1` frames quickly
+            for _ in range(stride - 1):
+                if not cap.grab():
+                    break
+                current_index += 1
+            current_index += 1
+        # Best-effort estimate: total remains unknown -> 0
+        total = 0
     cap.release()
-    return out, idxs.tolist(), fps, int(total)
+    return out, idxs, fps, int(total)
 
 
 _x_tf = transforms.Compose([

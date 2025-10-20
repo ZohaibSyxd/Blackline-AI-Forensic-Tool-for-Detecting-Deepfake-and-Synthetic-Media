@@ -19,6 +19,9 @@ spec:
           env:
             - name: BL_JWT_SECRET
               value: change-me
+            # Ensure models directory is where the app expects
+            - name: MODELS_DIR
+              value: /app/backend/models
             - name: STORAGE_BACKEND
               value: s3
             - name: STORAGE_BUCKET
@@ -35,3 +38,6 @@ spec:
               value: /tmp/torch-cache
             - name: HF_HOME
               value: /tmp/hf-cache
+            # Prefer offline usage of transformers in production
+            - name: TRANSFORMERS_OFFLINE
+              value: "1"

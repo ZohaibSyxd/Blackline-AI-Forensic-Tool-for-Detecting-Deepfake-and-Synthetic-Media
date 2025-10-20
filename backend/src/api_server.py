@@ -112,6 +112,33 @@ def buildinfo():
     if ffmpeg_present:
         p = run_command(["ffmpeg", "-version"])
         ffmpeg_ver = (p.stdout or p.stderr).splitlines()[0] if (p.stdout or p.stderr) else None
+    # Extra diagnostics to understand production behavior
+    torch_ok = False
+    decord_ok = False
+    cv_ok = False
+    try:
+        import torch  # type: ignore
+        torch_ok = True
+    except Exception:
+        pass
+    try:
+        import decord  # type: ignore
+        decord_ok = True
+    except Exception:
+        pass
+    try:
+        import cv2  # type: ignore
+        _ = cv2.__version__
+        cv_ok = True
+    except Exception:
+        pass
+    # Check model checkpoint presence
+    from .models.fusion_live import _resolve_models_root
+    mroot = _resolve_models_root()
+    import pathlib
+    x_ck = (mroot / "xception_best.pth").exists()
+    ts_ck = (mroot / "timesformer_best.pt").exists()
+    ts_cfg = (mroot / "timesformer_best.config.json").exists()
     return {
         "api_version": app.version,
         "storage_backend": os.getenv("STORAGE_BACKEND", "local"),
@@ -119,6 +146,8 @@ def buildinfo():
         "ffmpeg_present": ffmpeg_present,
         "ffprobe_version": ffprobe_ver,
         "ffmpeg_version": ffmpeg_ver,
+        "libs": {"torch": torch_ok, "decord": decord_ok, "opencv": cv_ok},
+        "models": {"root": str(mroot), "xception": x_ck, "timesformer": ts_ck, "ts_config": ts_cfg},
         # Marker that this build downloads remote assets before probing
         "features": {"download_first": True, "path_progress_message": True},
         # Helpful to identify Cloud Run/Render
