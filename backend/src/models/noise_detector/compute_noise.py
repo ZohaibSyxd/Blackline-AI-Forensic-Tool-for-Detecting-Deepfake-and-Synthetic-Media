@@ -31,7 +31,7 @@ from typing import Any, Dict, Tuple
 import numpy as np
 import cv2
 from PIL import Image
-from ..audit import audit_step
+from ...audit import audit_step
 
 
 def ensure_dir(p: Path) -> None:
