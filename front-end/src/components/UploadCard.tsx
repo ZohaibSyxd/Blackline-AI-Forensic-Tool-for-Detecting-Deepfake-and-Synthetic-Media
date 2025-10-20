@@ -36,7 +36,8 @@ interface AnalysisSummary {
   };
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+// Use configured API base if present; else default to same-origin so Netlify proxy can work
+const API_BASE = import.meta.env.VITE_API_BASE || (typeof window !== 'undefined' ? window.location.origin : "");
 
 type ItemStatus = 'idle' | 'uploading' | 'uploaded' | 'analyzing' | 'done' | 'error' | 'canceled';
 

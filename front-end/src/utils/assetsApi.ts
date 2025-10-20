@@ -13,7 +13,7 @@ export interface Asset {
   created_at: number; // epoch seconds
 }
 
-const API_BASE: string = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:8000';
+const API_BASE: string = (import.meta as any).env?.VITE_API_BASE || (typeof window !== 'undefined' ? window.location.origin : '');
 
 function authHeaders(extra?: Record<string, string>) {
   const tok = getAuthState().token;

@@ -4,7 +4,8 @@ import { getAnalysesForPage, getAllAnalyses, StoredAnalysisSummary, deleteAnalys
 import { removeFile as removePersistedFile } from '../utils/uploadPersistence';
 import { getPlaybackUrl } from '../utils/assetsApi';
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE || "http://localhost:8000";
+// Prefer configured API base; otherwise default to same-origin to work behind proxies
+const API_BASE = (import.meta as any).env?.VITE_API_BASE || (typeof window !== 'undefined' ? window.location.origin : "");
 
 const labelFor = (filePage?: string) => {
   if (!filePage) return "FILE ANALYSIS";
@@ -200,10 +201,18 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
       try {
         const rawAsset = (selected as any)?.raw?.asset as any;
         const stored = rawAsset?.stored_path as string | undefined;
-        const assetId = rawAsset?.asset_id as number | undefined;
+        const assetIdUnknown = (rawAsset as any)?.asset_id;
         if (!selected) { if (!canceled) setDetailVideoSrc(undefined); return; }
-        if (assetId) {
-          const url = await getPlaybackUrl(assetId);
+        // Only call playback-url for numeric DB IDs; legacy analyze returns a UUID-like string here
+        let numericId: number | null = null;
+        if (assetIdUnknown !== undefined && assetIdUnknown !== null) {
+          const n = Number(assetIdUnknown);
+          if (Number.isFinite(n) && String(n) === String(assetIdUnknown).trim()) {
+            numericId = n;
+          }
+        }
+        if (numericId !== null) {
+          const url = await getPlaybackUrl(numericId);
           if (!canceled) setDetailVideoSrc(url);
           return;
         }
