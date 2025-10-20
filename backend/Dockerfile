@@ -32,7 +32,6 @@ RUN apt-get update \
          libxvidcore-dev \
          libx264-dev \
          libgtk-3-dev \
-         libatlas-base-dev \
          gfortran \
      && rm -rf /var/lib/apt/lists/*
 
