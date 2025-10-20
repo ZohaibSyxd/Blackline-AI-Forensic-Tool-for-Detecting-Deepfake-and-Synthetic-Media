@@ -345,7 +345,9 @@ def analyze_asset(req: AnalyzeAssetRequest, user = Depends(get_current_user)):
     temp_path = None
     store_root_for_meta = str(RAW_ROOT)
     stored_path_for_meta = a.stored_path or ""
-    if (not video_abs.exists()) and a.remote_key:
+    # Consider a missing or directory-only path as not having a local file
+    has_local_file = bool(a.stored_path) and video_abs.is_file()
+    if (not has_local_file) and a.remote_key:
         try:
             _write_progress(job_id, "download", 18, "Fetching remote asset")
             temp_path = STORAGE.download_to_temp(a.remote_key)
@@ -354,6 +356,9 @@ def analyze_asset(req: AnalyzeAssetRequest, user = Depends(get_current_user)):
             stored_path_for_meta = Path(temp_path).name
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to retrieve remote asset: {e}")
+    elif not has_local_file and not a.remote_key:
+        # No local file and no remote reference; cannot proceed
+        raise HTTPException(status_code=404, detail="Asset content not available")
 
     # Emit a quick check so the UI can see path details
     try:

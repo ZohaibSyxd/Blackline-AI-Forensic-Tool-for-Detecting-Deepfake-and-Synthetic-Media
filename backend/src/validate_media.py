@@ -74,7 +74,8 @@ def validate_asset(stored_path: str, store_root: str | None, sha256: str, mime: 
         p = run_command(["ffmpeg", "-version"])
         ffmpeg_ver = (p.stdout or p.stderr).splitlines()[0] if (p.stdout or p.stderr) else None
 
-    if not path.exists():
+    # Only proceed for a real file; missing or directory → file_missing
+    if (not path.exists()) or (path.exists() and not path.is_file()):
         return {
             "asset_id": None,
             "sha256": sha256,

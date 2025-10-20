@@ -36,7 +36,8 @@ def probe_asset(
     no_exif: skip exiftool for speed
     """
     p = Path(store_root, stored_path) if store_root else Path(stored_path)
-    if not p.exists():
+    # Only probe real files; skip if path missing or is a directory
+    if (not p.exists()) or (p.exists() and not p.is_file()):
         return None
     if mime and not str(mime).lower().startswith("video/"):
         return None
