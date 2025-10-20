@@ -1,0 +1,22 @@
+[build]
+  base = "front-end"
+  publish = "dist"
+  command = "npm run build"
+
+[build.environment]
+  NODE_VERSION = "18"
+
+## SPA fallback for client-side routing
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+## OPTIONAL: Proxy API through Netlify to avoid CORS (uncomment and set your backend origin)
+## After enabling this, set VITE_API_BASE = "https://blackline-tech.me" in Netlify env
+## so the app hits same-origin /api which Netlify forwards to your backend.
+# [[redirects]]
+#   from = "/api/*"
+#   to = "https://api.your-backend-domain.tld/:splat"
+#   status = 200
+#   force = true
