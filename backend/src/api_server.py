@@ -374,6 +374,9 @@ async def analyze(file: UploadFile = File(...), model: str = Form("stub"), job_i
             summary["frame_fps"] = df_pred["frame_fps"]
         if df_pred.get("frame_total") is not None:
             summary["frame_total"] = df_pred["frame_total"]
+    # Bubble up fusion components debug if present
+    if df_pred.get("components") is not None:
+        summary["components"] = df_pred["components"]
 
     _write_progress(job_id, "done", 100, "Completed")
     return AnalyzeResponse(asset=ingest_rec, validate=validate_rec, probe=probe_rec, summary=summary)
@@ -496,6 +499,8 @@ def analyze_asset(req: AnalyzeAssetRequest, user = Depends(get_current_user)):
             summary["frame_fps"] = df_pred["frame_fps"]
         if df_pred.get("frame_total") is not None:
             summary["frame_total"] = df_pred["frame_total"]
+    if df_pred.get("components") is not None:
+        summary["components"] = df_pred["components"]
 
     _write_progress(job_id, "done", 100, "Completed")
     return AnalyzeResponse(asset=ingest_rec, validate=validate_rec, probe=probe_rec, summary=summary)

@@ -30,6 +30,14 @@ except Exception:  # pragma: no cover - optional
     HAS_DECORD = False
     import cv2
 
+# Allow forcing OpenCV sampling in environments where decord misbehaves
+if os.getenv("USE_DECORD", "1").lower() in ("0", "false", "no"):
+    HAS_DECORD = False
+    try:
+        import cv2  # ensure cv2 is imported when disabling decord
+    except Exception:
+        pass
+
 from .xception_infer import XceptionDeepfakeDetector, IMAGENET_MEAN, IMAGENET_STD
 from torchvision import transforms
 
@@ -41,6 +49,10 @@ import torch.nn as nn
 _xception: Optional[XceptionDeepfakeDetector] = None
 _ts_processor = None
 _ts_model: Optional[nn.Module] = None
+_xc_loaded_keys = 0
+_xc_total_keys = 0
+_ts_loaded_keys = 0
+_ts_total_keys = 0
 
 TS_DEFAULT_MODEL_ID = "facebook/timesformer-base-finetuned-k400"
 
@@ -72,7 +84,7 @@ class TSBinary(nn.Module):
 
 
 def _ensure_timesformer(config_json: Optional[Path] = None, checkpoint: Optional[Path] = None):
-    global _ts_processor, _ts_model
+    global _ts_processor, _ts_model, _ts_loaded_keys, _ts_total_keys
     if _ts_processor is not None and _ts_model is not None:
         return _ts_processor, _ts_model
     model_name = TS_DEFAULT_MODEL_ID
@@ -109,9 +121,22 @@ def _ensure_timesformer(config_json: Optional[Path] = None, checkpoint: Optional
     if checkpoint and checkpoint.exists():
         try:
             ck = torch.load(str(checkpoint), map_location="cpu")
-            model.load_state_dict(ck, strict=False)
+            model_sd = model.state_dict()
+            ck_sd = ck.get("state_dict", ck)
+            # loosen prefix differences (e.g., 'module.' from DDP)
+            normalized = {}
+            for k, v in ck_sd.items():
+                nk = k
+                if nk.startswith("module."):
+                    nk = nk[len("module."):]
+                normalized[nk] = v
+            # count matches
+            _ts_total_keys = len(model_sd)
+            _ts_loaded_keys = sum(1 for k in normalized.keys() if k in model_sd)
+            model_sd.update({k: v for k, v in normalized.items() if k in model_sd})
+            model.load_state_dict(model_sd, strict=False)
         except Exception:
-            pass
+            _ts_loaded_keys = 0
     model.eval().to(pick_device())
     _ts_processor = processor
     _ts_model = model
@@ -122,6 +147,11 @@ def _sample_frames_video_with_meta(vpath: Path, num: int) -> Tuple[List[Image.Im
     """Sample ~num frames evenly from the video.
     Returns (images, frame_indices, fps, total_frames)
     """
+    # Resolve to absolute path to avoid backend-specific CWD issues
+    try:
+        vpath = Path(vpath).resolve()
+    except Exception:
+        vpath = Path(vpath)
     if HAS_DECORD:
         try:
             vr = VideoReader(str(vpath), ctx=decord_cpu(0))
@@ -137,6 +167,7 @@ def _sample_frames_video_with_meta(vpath: Path, num: int) -> Tuple[List[Image.Im
                 fps = 0.0
             return [Image.fromarray(fr) for fr in arr], idxs.tolist(), fps, int(len(vr))
         except Exception:
+            # fall through to OpenCV
             pass
     # Fallback: OpenCV
     cap = cv2.VideoCapture(str(vpath))
@@ -196,7 +227,8 @@ def _predict_xception_detail(vpath: Path, checkpoint: Optional[Path], frames: in
         return 0.5, [], idxs, fps, total
     batch = torch.stack([_x_tf(im) for im in imgs], dim=0)
     with torch.no_grad():
-        probs = det.predict_batch(batch).cpu().numpy().tolist()
+        # Avoid torch->numpy conversion to sidestep environments where PyTorch's NumPy bridge isn't initialized
+        probs = det.predict_batch(batch).detach().cpu().float().tolist()
     import numpy as np
     a = np.asarray(probs, float) if probs else np.asarray([0.5], float)
     if agg == "median":
