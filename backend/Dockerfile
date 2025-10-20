@@ -2,7 +2,11 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    MODELS_DIR=/app/backend/models
+    MODELS_DIR=/app/backend/models \
+    USE_DECORD=0 \
+    TRANSFORMERS_OFFLINE=1 \
+    HF_HOME=/tmp/hf \
+    TORCH_HOME=/tmp/torch
 
 # System deps for OpenCV/mediapipe runtime
 RUN apt-get update \
@@ -24,8 +28,8 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # Copy application code (everything under backend/ context)
 COPY . /app/backend
 
-# Expose the port (informational; Render sets $PORT)
-EXPOSE 8000
+# Expose the port (informational)
+EXPOSE 8080
 
 # Start Uvicorn on the Render-provided PORT (fallback 8000 locally)
-CMD ["sh", "-c", "uvicorn backend.src.api_server:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn backend.src.api_server:app --host 0.0.0.0 --port ${PORT:-8080}"]

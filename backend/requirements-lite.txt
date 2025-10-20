@@ -1,6 +1,3 @@
-## Use the official PyTorch CPU wheel index for fast, prebuilt wheels on Cloud Build
---extra-index-url https://download.pytorch.org/whl/cpu
-
 fastapi>=0.110.0,<0.112.0
 uvicorn[standard]>=0.23.0,<0.30.0
 python-multipart>=0.0.9,<0.0.10
@@ -9,20 +6,11 @@ opencv-contrib-python>=4.10.0,<5.0.0
 numpy>=2.1.0,<3.0.0
 Pillow>=10.0.0,<11.0.0
 tqdm>=4.66.0,<5.0.0
-pytest>=8.0.0,<9.0.0
 passlib[bcrypt]>=1.7.4,<1.8.0
 python-jose>=3.3.0,<3.4.0
-mediapipe>=0.10.0,<0.11.0
 imagehash>=4.3.1,<5.0.0
 joblib>=1.0.0,<2.0.0
 scikit-learn>=1.5.0,<1.6.0
-## Pin to versions that provide Python 3.11 manylinux CPU wheels
-torch==2.2.2
-torchvision==0.17.2
-timm>=0.6.0,<1.0.0
-transformers>=4.41.0,<5.0.0
-## decord is optional and slow to build on Py3.11; we rely on OpenCV fallback
-# decord>=0.6.0,<0.7.0
 pandas>=2.0.0,<3.0.0
 SQLAlchemy>=2.0.0,<3.0.0
 psycopg2-binary>=2.9.0,<3.0.0

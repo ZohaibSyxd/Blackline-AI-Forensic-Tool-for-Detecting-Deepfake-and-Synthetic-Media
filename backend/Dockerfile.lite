@@ -1,0 +1,29 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    MODELS_DIR=/app/backend/models
+
+# System deps for OpenCV runtime
+RUN apt-get update \
+     && apt-get install -y --no-install-recommends \
+         libgl1 \
+         libglib2.0-0 \
+         libsm6 \
+         libxext6 \
+         libgomp1 \
+         ffmpeg \
+     && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Cache layer: only requirements
+COPY requirements-lite.txt /app/requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir -r /app/requirements.txt
+
+# App code
+COPY . /app/backend
+
+EXPOSE 8080
+CMD ["sh", "-c", "uvicorn backend.src.api_server:app --host 0.0.0.0 --port ${PORT:-8080}"]
