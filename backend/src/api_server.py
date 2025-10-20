@@ -98,6 +98,33 @@ class AnalyzeResponse(BaseModel):
 def health():
     return {"status": "ok"}
 
+@app.get("/api/buildinfo")
+def buildinfo():
+    import shutil, os
+    from .utils import run_command
+    ffprobe_present = shutil.which("ffprobe") is not None
+    ffmpeg_present = shutil.which("ffmpeg") is not None
+    ffprobe_ver = None
+    ffmpeg_ver = None
+    if ffprobe_present:
+        p = run_command(["ffprobe", "-version"])
+        ffprobe_ver = (p.stdout or p.stderr).splitlines()[0] if (p.stdout or p.stderr) else None
+    if ffmpeg_present:
+        p = run_command(["ffmpeg", "-version"])
+        ffmpeg_ver = (p.stdout or p.stderr).splitlines()[0] if (p.stdout or p.stderr) else None
+    return {
+        "api_version": app.version,
+        "storage_backend": os.getenv("STORAGE_BACKEND", "local"),
+        "ffprobe_present": ffprobe_present,
+        "ffmpeg_present": ffmpeg_present,
+        "ffprobe_version": ffprobe_ver,
+        "ffmpeg_version": ffmpeg_ver,
+        # Marker that this build downloads remote assets before probing
+        "features": {"download_first": True, "path_progress_message": True},
+        # Helpful to identify Cloud Run/Render
+        "env": {"K_SERVICE": os.getenv("K_SERVICE"), "K_REVISION": os.getenv("K_REVISION"), "RENDER": os.getenv("RENDER")} 
+    }
+
 @app.get("/api/db/health")
 def db_health():
     # Try a simple query

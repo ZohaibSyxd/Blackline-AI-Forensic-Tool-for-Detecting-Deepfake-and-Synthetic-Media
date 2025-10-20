@@ -102,6 +102,7 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
   const analysisRegionRef = useRef<HTMLDivElement | null>(null);
   const [videoTime, setVideoTime] = useState(0);
   const [mediaDuration, setMediaDuration] = useState<number | null>(null);
+  const [detailVideoSrc, setDetailVideoSrc] = useState<string | undefined>(undefined);
 
   // Jump the source video to a specific time
   const jumpToTime = React.useCallback((t: number, autoPlay = false) => {
@@ -190,6 +191,33 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
   useEffect(() => {
     setVideoTime(0);
     setMediaDuration(null);
+  }, [selected?.id, selected?.analyzedAt]);
+
+  // Resolve playback URL for the selected item (once per selection)
+  useEffect(() => {
+    let canceled = false;
+    (async () => {
+      try {
+        const rawAsset = (selected as any)?.raw?.asset as any;
+        const stored = rawAsset?.stored_path as string | undefined;
+        const assetId = rawAsset?.asset_id as number | undefined;
+        if (!selected) { if (!canceled) setDetailVideoSrc(undefined); return; }
+        if (assetId) {
+          const url = await getPlaybackUrl(assetId);
+          if (!canceled) setDetailVideoSrc(url);
+          return;
+        }
+        if (stored) {
+          const url = `${String(API_BASE).replace(/\/$/, '')}/assets/${String(stored).replace(/^\/+/, '')}`;
+          if (!canceled) setDetailVideoSrc(url);
+          return;
+        }
+        if (!canceled) setDetailVideoSrc(undefined);
+      } catch {
+        if (!canceled) setDetailVideoSrc(undefined);
+      }
+    })();
+    return () => { canceled = true; };
   }, [selected?.id, selected?.analyzedAt]);
 
   const allChecked = analyses.length>0 && checkedIds.length === analyses.length;
@@ -482,32 +510,10 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                 {(() => {
                   const rawAsset = (selected as any)?.raw?.asset as any;
                   const stored = rawAsset?.stored_path as string|undefined;
-                  const assetId = rawAsset?.asset_id as number|undefined;
                   const fs = (selected as any)?.raw?.summary?.frame_scores as Array<{ index:number; time_s:number|null; prob:number }>|undefined;
                   const fps = (selected as any)?.raw?.summary?.frame_fps as number|undefined;
-                  if (!stored && (!fs || !fs.length)) return null;
-                  const [videoSrc, setVideoSrc] = React.useState<string | undefined>(undefined);
-                  React.useEffect(() => {
-                    let canceled = false;
-                    (async () => {
-                      try {
-                        if (assetId) {
-                          const url = await getPlaybackUrl(assetId);
-                          if (!canceled) setVideoSrc(url);
-                          return;
-                        }
-                        if (stored) {
-                          const url = `${String(API_BASE).replace(/\/$/, '')}/assets/${String(stored).replace(/^\/+/, '')}`;
-                          if (!canceled) setVideoSrc(url);
-                        } else {
-                          if (!canceled) setVideoSrc(undefined);
-                        }
-                      } catch {
-                        if (!canceled) setVideoSrc(undefined);
-                      }
-                    })();
-                    return () => { canceled = true; };
-                  }, [assetId, stored, selected?.id]);
+                  const hasAny = !!detailVideoSrc || (fs && fs.length>0);
+                  if (!hasAny) return null;
                   const maxH = 56; // px
                   const duration = (selected.summary.duration_s as number|undefined) ?? (typeof fps==='number' && (selected as any)?.raw?.summary?.frame_total ? ((selected as any).raw.summary.frame_total / Math.max(1, fps)) : undefined);
                   const effDuration = (mediaDuration && mediaDuration>0 ? mediaDuration : duration);
@@ -515,12 +521,12 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                     <details className="overlay-block" open>
                       <summary>Source video &amp; Frame likelihoods</summary>
                       <div className="overlay-content">
-                        {videoSrc && (
+                        {detailVideoSrc && (
                           <div className="overlay-preview resizable">
                             <video
                               ref={videoRef}
                               key={(stored||'')+':'+(selected?.id||'')}
-                              src={videoSrc}
+                              src={detailVideoSrc}
                               controls
                               preload="metadata"
                               playsInline
