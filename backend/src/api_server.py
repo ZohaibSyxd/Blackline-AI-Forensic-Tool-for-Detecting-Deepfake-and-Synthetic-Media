@@ -28,6 +28,7 @@ from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles
 
 # Local imports (relative within package)
@@ -79,6 +80,9 @@ if _storage_backend == "local":
 FRAMES_DIR = DERIVED_DIR / "frames"
 FRAMES_DIR.mkdir(parents=True, exist_ok=True)
 STORAGE = get_storage(RAW_ROOT)
+
+# Mount the 'data' directory to serve static files
+app.mount("/data", StaticFiles(directory="backend/data"), name="data")
 
 # Initialize database on startup
 @app.on_event("startup")
@@ -527,6 +531,25 @@ def analyze_asset(req: AnalyzeAssetRequest, user = Depends(get_current_user)):
 
     _write_progress(job_id, "done", 100, "Completed")
     return AnalyzeResponse(asset=ingest_rec, validate=validate_rec, probe=probe_rec, summary=summary)
+
+# ------------------------- Media Asset Viewing -------------------------
+@app.get("/api/v1/asset/{asset_id}/view")
+def view_asset(asset_id: int, db: Session = Depends(get_db)):
+    """
+    Get a media asset for viewing
+    """
+    db_asset = db.query(models_db.Asset).filter(models_db.Asset.id == asset_id).first()
+    if not db_asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    # TODO: check permissions
+    # if db_asset.user_id != current_user.id:
+    #     raise HTTPException(status_code=403, detail="Not authorized")
+
+    file_path = os.path.join(RAW_ROOT, db_asset.stored_path)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path)
 
 # ------------------------- Cloud Storage Helpers -------------------------
 # Define AssetOut before any routes reference it to avoid forward-ref issues in Pydantic v2
