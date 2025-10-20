@@ -38,7 +38,7 @@ if os.getenv("USE_DECORD", "1").lower() in ("0", "false", "no"):
     except Exception:
         pass
 
-from .xception_infer import XceptionDeepfakeDetector, IMAGENET_MEAN, IMAGENET_STD
+from .xception.xception_infer import XceptionDeepfakeDetector, IMAGENET_MEAN, IMAGENET_STD
 from torchvision import transforms
 
 from transformers import AutoImageProcessor, TimesformerModel, TimesformerConfig
