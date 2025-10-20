@@ -68,8 +68,11 @@ app.add_middleware(
 DERIVED_DIR = DATA_ROOT / "derived"
 DERIVED_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(DERIVED_DIR)), name="static")
- # Expose raw assets for video playback (dev)
-app.mount("/assets", StaticFiles(directory=str(RAW_ROOT)), name="assets")
+ # Expose raw assets for video playback (dev/local only)
+_storage_backend = os.getenv("STORAGE_BACKEND", "local").lower()
+if _storage_backend == "local":
+    RAW_ROOT.mkdir(parents=True, exist_ok=True)
+    app.mount("/assets", StaticFiles(directory=str(RAW_ROOT)), name="assets")
 FRAMES_DIR = DERIVED_DIR / "frames"
 FRAMES_DIR.mkdir(parents=True, exist_ok=True)
 STORAGE = get_storage(RAW_ROOT)
