@@ -12,12 +12,12 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Install Python deps
-COPY backend/requirements.txt /app/requirements.txt
+# Install Python deps (assumes build context is backend/)
+COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy application code
-COPY backend /app/backend
+# Copy application code (everything under backend/ context)
+COPY . /app/backend
 
 # Expose the port (informational; Render sets $PORT)
 EXPOSE 8000
