@@ -1,0 +1,37 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: blackline-api
+  namespace: default
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/cpu: "2"
+        run.googleapis.com/memory: "4Gi" # change to 8Gi if needed
+        run.googleapis.com/concurrency: "1"
+    spec:
+      containers:
+        - image: REPLACE_WITH_IMAGE
+          ports:
+            - name: http1
+              containerPort: 8000
+          env:
+            - name: BL_JWT_SECRET
+              value: change-me
+            - name: STORAGE_BACKEND
+              value: s3
+            - name: STORAGE_BUCKET
+              value: REPLACE_BUCKET_NAME
+            - name: AWS_REGION
+              value: ap-southeast-2
+            # Prefer using Secret Manager for credentials in production
+            - name: AWS_ACCESS_KEY_ID
+              value: REPLACE_ACCESS_KEY
+            - name: AWS_SECRET_ACCESS_KEY
+              value: REPLACE_SECRET_KEY
+            # Optional: cache model weights in /tmp (ephemeral per instance)
+            - name: TORCH_HOME
+              value: /tmp/torch-cache
+            - name: HF_HOME
+              value: /tmp/hf-cache

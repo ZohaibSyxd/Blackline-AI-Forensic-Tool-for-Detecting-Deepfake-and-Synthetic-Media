@@ -340,34 +340,39 @@ def analyze_asset(req: AnalyzeAssetRequest, user = Depends(get_current_user)):
             raise HTTPException(status_code=404, detail="Asset not found")
         break
 
-    # Build ingest-like record
+    # Resolve local path for this asset. If it's only in remote storage, download to temp
+    video_abs = Path(RAW_ROOT) / (a.stored_path or "")
+    temp_path = None
+    store_root_for_meta = str(RAW_ROOT)
+    stored_path_for_meta = a.stored_path or ""
+    if (not video_abs.exists()) and a.remote_key:
+        try:
+            _write_progress(job_id, "download", 18, "Fetching remote asset")
+            temp_path = STORAGE.download_to_temp(a.remote_key)
+            video_abs = temp_path
+            store_root_for_meta = str(Path(temp_path).parent)
+            stored_path_for_meta = Path(temp_path).name
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to retrieve remote asset: {e}")
+
+    # Build ingest-like record (reflecting the path used for analysis/probing)
     ingest_rec = {
         "action": "ingest",
         "sha256": a.sha256,
-        "stored_path": a.stored_path,
-        "store_root": str(RAW_ROOT),
+        "stored_path": stored_path_for_meta,
+        "store_root": store_root_for_meta,
         "mime": a.mime,
         "asset_id": a.id,
     }
 
-    # Validate & probe
-    _write_progress(job_id, "validate", 20, "Validating format & decode")
-    validate_rec = validate_asset(a.stored_path or "", str(RAW_ROOT), a.sha256 or "", a.mime)
-    _write_progress(job_id, "probe", 35, "Probing media")
-    probe_rec = probe_asset(a.stored_path or "", str(RAW_ROOT), a.sha256 or "", a.mime, no_exif=True)
+    # Validate & probe using the resolved local path (RAW or temp)
+    _write_progress(job_id, "validate", 22, "Validating format & decode")
+    validate_rec = validate_asset(stored_path_for_meta, store_root_for_meta, a.sha256 or "", a.mime)
+    _write_progress(job_id, "probe", 38, "Probing media")
+    probe_rec = probe_asset(stored_path_for_meta, store_root_for_meta, a.sha256 or "", a.mime, no_exif=True)
 
     # Model inference
-    video_abs = Path(RAW_ROOT) / (a.stored_path or "")
     model = (req.model or "stub").lower().strip()
-    # If local file missing but remote_key present, download to temp
-    temp_path = None
-    if (not video_abs.exists()) and a.remote_key:
-        try:
-            _write_progress(job_id, "download", 50, "Fetching remote asset")
-            temp_path = STORAGE.download_to_temp(a.remote_key)
-            video_abs = temp_path
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to retrieve remote asset: {e}")
 
     _write_progress(job_id, "model", 65, f"Running model: {model}")
     if model in ("copy_move", "copymove", "cm"):

@@ -5,10 +5,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # System deps for OpenCV/mediapipe runtime
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-       libgl1 \
-       libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+     && apt-get install -y --no-install-recommends \
+         libgl1 \
+         libglib2.0-0 \
+         ffmpeg \
+     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
