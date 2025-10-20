@@ -185,3 +185,32 @@ Steps:
 5) Once DNS propagates, Netlify issues TLS automatically.
 
 Note: Keep backend CORS allow_origins aligned with your final site origin(s).
+
+## Deploy backend to Render (FastAPI)
+
+Render’s default Python (3.13 at the time of writing) is not compatible with our mediapipe constraint (requires < 0.11.x and wheels exist only up to Python 3.11). To ensure a compatible build:
+
+1) Pin Python for Render by adding `backend/runtime.txt` with:
+```
+python-3.11.9
+```
+
+2) Create a new Web Service in Render
+- Repository: this GitHub repo
+- Root Directory: `backend`
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `uvicorn backend.src.api_server:app --host 0.0.0.0 --port $PORT`
+- Instance: Standard or above (CPU is fine; GPU not required for stub models)
+
+3) Set Environment Variables (Render → Settings → Environment)
+- `BL_JWT_SECRET=change-me`
+- `DATABASE_URL=sqlite:///./backend/data/dev.db` (or your Postgres URL)
+- `STORAGE_BACKEND=local` (or `s3` and then set `STORAGE_BUCKET`, `AWS_REGION`, plus AWS creds/role)
+
+4) CORS
+- In production, tighten CORS in `backend/src/api_server.py` to your Netlify domain(s) instead of `"*"`.
+
+5) Redeploy
+- After saving runtime.txt and env vars, trigger a deploy. Verify `/api/health`.
+
+Tip: If you build from the repo root by mistake, Render won’t find `runtime.txt`. Always set Root Directory to `backend` so Render picks up the correct Python version.
