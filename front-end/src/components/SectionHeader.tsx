@@ -53,24 +53,26 @@ const SectionHeader: React.FC<Props> = ({ currentPage, onNavigate, lastFilePage,
           )}
           {title || 'Dashboard'}
         </div>
-        <div className="file-analysis-tabs">
-          <div className={`file-analysis-tab ${currentPage && currentPage.startsWith('file') ? 'active' : ''}`} onClick={() => onNavigate(lastFilePage || 'file1')}>Documents</div>
-          <div className={`file-analysis-tab ${currentPage === 'reports' ? 'active' : ''}`} onClick={() => onNavigate('reports')}>Reports</div>
-          <div className="file-analysis-tab sidebar-actions-wrap" ref={menuRef}>
-            <button
-              className="header-more-btn"
-              title="More"
-              aria-label="More actions"
-              onClick={() => setMenuOpen(o => !o)}
-              aria-haspopup="menu"
-            >…</button>
-            {menuOpen && (
-              <div className="item-menu" role="menu">
-                <button className="item-menu-btn danger" role="menuitem" onClick={requestDelete}>Delete</button>
-              </div>
-            )}
+        {currentPage !== 'dashboard' && (
+          <div className="file-analysis-tabs">
+            <div className={`file-analysis-tab ${currentPage && currentPage.startsWith('file') ? 'active' : ''}`} onClick={() => onNavigate(lastFilePage || 'file1')}>Documents</div>
+            <div className={`file-analysis-tab ${currentPage === 'reports' ? 'active' : ''}`} onClick={() => onNavigate('reports')}>Reports</div>
+            <div className="file-analysis-tab sidebar-actions-wrap" ref={menuRef}>
+              <button
+                className="header-more-btn"
+                title="More"
+                aria-label="More actions"
+                onClick={() => setMenuOpen(o => !o)}
+                aria-haspopup="menu"
+              >…</button>
+              {menuOpen && (
+                <div className="item-menu" role="menu">
+                  <button className="item-menu-btn danger" role="menuitem" onClick={requestDelete}>Delete</button>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
       <ConfirmDialog
         open={confirmOpen}

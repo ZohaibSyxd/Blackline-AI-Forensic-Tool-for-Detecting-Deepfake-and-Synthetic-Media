@@ -33,11 +33,35 @@ def predict_deepfake(video_path: Path, sha256: str | None = None, method: str | 
         sha256: optional known content hash; if absent we derive from file bytes (slow for large files).
         method: optional method for prediction; if None, defaults to "fusion-blend".
     """
-    # ... existing code ...
-    # Lazily import heavy DL libs
-    from ..xception import predict_on_frames
-    from ..timesformer import predict_on_clips
-    from ..utils import get_video_frames, get_video_clips
+    # Lazily import heavy DL libs; guard imports so the API still works in dev
+    predict_on_frames = None
+    predict_on_clips = None
+    get_video_frames = None
+    get_video_clips = None
+    try:
+        from ..xception import predict_on_frames as _pof
+        predict_on_frames = _pof
+    except Exception as e:
+        predict_on_frames = None
+        xception_import_error = str(e)
+    else:
+        xception_import_error = None
+    try:
+        from ..timesformer import predict_on_clips as _pot
+        predict_on_clips = _pot
+    except Exception as e:
+        predict_on_clips = None
+        timesformer_import_error = str(e)
+    else:
+        timesformer_import_error = None
+    try:
+        from ..utils import get_video_frames as _gvf, get_video_clips as _gvc
+        get_video_frames = _gvf
+        get_video_clips = _gvc
+    except Exception:
+        # utils should normally be available; if not, leave None and let callers handle
+        get_video_frames = None
+        get_video_clips = None
 
     # Default to fusion-blend if no method is specified
     if method is None:
@@ -46,20 +70,26 @@ def predict_deepfake(video_path: Path, sha256: str | None = None, method: str | 
     # Component-wise prediction
     components = {}
     if "xception" in method:
-        try:
-            frame_batches = get_video_frames(video_path, num_frames=16, batch_size=8)
-            xception_results = predict_on_frames(frame_batches)
-            components["xception"] = xception_results
-        except Exception as e:
-            components["xception"] = {"valid": False, "error": str(e)}
+        if predict_on_frames is None or get_video_frames is None:
+            components["xception"] = {"valid": False, "error": f"xception unavailable: {xception_import_error or 'not installed'}"}
+        else:
+            try:
+                frame_batches = get_video_frames(video_path, num_frames=16, batch_size=8)
+                xception_results = predict_on_frames(frame_batches)
+                components["xception"] = xception_results
+            except Exception as e:
+                components["xception"] = {"valid": False, "error": str(e)}
 
     if "timesformer" in method:
-        try:
-            clips = get_video_clips(video_path, clip_len=16, num_clips=5)
-            timesformer_results = predict_on_clips(clips)
-            components["timesformer"] = timesformer_results
-        except Exception as e:
-            components["timesformer"] = {"valid": False, "error": str(e)}
+        if predict_on_clips is None or get_video_clips is None:
+            components["timesformer"] = {"valid": False, "error": f"timesformer unavailable: {timesformer_import_error or 'not installed'}"}
+        else:
+            try:
+                clips = get_video_clips(video_path, clip_len=16, num_clips=5)
+                timesformer_results = predict_on_clips(clips)
+                components["timesformer"] = timesformer_results
+            except Exception as e:
+                components["timesformer"] = {"valid": False, "error": str(e)}
 
     # Fusion
     if method == "fusion-blend":

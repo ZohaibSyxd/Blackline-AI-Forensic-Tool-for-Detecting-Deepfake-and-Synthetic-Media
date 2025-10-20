@@ -395,6 +395,46 @@ async def analyze(file: UploadFile = File(...), model: str = Form("stub"), job_i
     # 5) Summary
     sum_probe = summarize_ffprobe((probe_rec or {}).get("probe")) if probe_rec else {}
     _write_progress(job_id, "summary", 85, "Summarizing")
+    # Normalize and choose the model score consistently. Models may return different keys
+    # (e.g., fused_score, deepfake_score, prob_fake, fake_prob, score). Prefer fused_score
+    # when available. Also support scores expressed as percentages (0..100).
+    def _pick_score(pred: dict) -> float | None:
+        if not isinstance(pred, dict):
+            return None
+        keys = ["fused_score", "deepfake_score", "prob_fake", "fake_prob", "score"]
+        for k in keys:
+            v = pred.get(k)
+            if v is None:
+                continue
+            try:
+                fv = float(v)
+            except Exception:
+                continue
+            # If value looks like a percent (0-100), scale it to 0..1
+            if fv > 1 and fv <= 100:
+                fv = fv / 100.0
+            # clamp to [0,1)
+            fv = max(0.0, min(0.999999, fv))
+            return fv
+        # fallback to 'score' property or df_pred.get('score') if present
+        try:
+            v = pred.get("score")
+            if v is None:
+                return None
+            fv = float(v)
+            if fv > 1 and fv <= 100:
+                fv = fv / 100.0
+            return max(0.0, min(0.999999, fv))
+        except Exception:
+            return None
+
+    picked_score = _pick_score(df_pred or {})
+    # Default decision threshold (can be tuned per-model later)
+    decision_threshold = 0.5
+    label_from_score = None
+    if picked_score is not None:
+        label_from_score = "fake" if picked_score >= decision_threshold else "real"
+
     summary = {
         "width": sum_probe.get("width"),
         "height": sum_probe.get("height"),
@@ -404,9 +444,10 @@ async def analyze(file: UploadFile = File(...), model: str = Form("stub"), job_i
         "format_valid": validate_rec.get("format_valid") if validate_rec else None,
         "decode_valid": validate_rec.get("decode_valid") if validate_rec else None,
         "errors": validate_rec.get("errors") if validate_rec else [],
-        "deepfake_likelihood": df_pred.get("score"),
-        "deepfake_label": df_pred.get("label"),
+        "deepfake_likelihood": (picked_score if picked_score is not None else df_pred.get("score")),
+        "deepfake_label": (df_pred.get("label") or label_from_score),
         "deepfake_method": df_pred.get("method"),
+        "decision_threshold": decision_threshold,
     }
     # Include any additional model-specific fields (e.g., copy-move metrics/overlay)
     for k in ("cm_confidence", "cm_coverage_ratio", "cm_shift_magnitude", "cm_num_keypoints", "cm_num_matches", "overlay_uri",

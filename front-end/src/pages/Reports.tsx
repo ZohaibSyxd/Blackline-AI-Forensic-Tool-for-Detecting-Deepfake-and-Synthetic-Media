@@ -88,8 +88,34 @@ const DonutChart: React.FC<{ data: Array<{ label: string; value: number }>; size
   );
 };
 
+// --- File Analysis Cards ---
+const FileAnalysisCards: React.FC<{ analyses: StoredAnalysisSummary[], onSelect: (id: string) => void, selectedId?: string }> = ({ analyses, onSelect, selectedId }) => {
+  if (!analyses.length) return null;
+  return (
+    <div className="file-analysis-cards">
+      {analyses.map(a => (
+        <div
+          key={a.id}
+          className={`file-analysis-card${selectedId === a.id ? ' selected' : ''}`}
+          onClick={() => onSelect(a.id)}
+        >
+          <div className="card-title">{a.fileName}</div>
+          <div className="card-info">
+            <div>Likelihood: <b>{((a.summary.deepfake_likelihood||0)*100).toFixed(1)}%</b></div>
+            <div>Label: <b>{a.summary.deepfake_label || '—'}</b></div>
+            <div>Duration: <b>{a.summary.duration_s ? a.summary.duration_s.toFixed(2)+'s' : '—'}</b></div>
+            <div>Analyzed: <b>{new Date(a.analyzedAt).toLocaleString()}</b></div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
-  const label = labelFor(filePage);
+  const allPageKeys = ["file1", "file2", "file3", "file$"];
+  const [activePageKey, setActivePageKey] = useState<string>(filePage || "file1");
+  const label = labelFor(activePageKey);
   const [analyses, setAnalyses] = useState<StoredAnalysisSummary[]>([]);
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'analyzedAt', dir: 'desc' });
   const [selected, setSelected] = useState<StoredAnalysisSummary | null>(null); // single row detail panel
@@ -104,6 +130,8 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
   const [videoTime, setVideoTime] = useState(0);
   const [mediaDuration, setMediaDuration] = useState<number | null>(null);
   const [detailVideoSrc, setDetailVideoSrc] = useState<string | undefined>(undefined);
+  // Add state for selected card
+  const [selectedCardId, setSelectedCardId] = useState<string | undefined>(undefined);
 
   // Jump the source video to a specific time
   const jumpToTime = React.useCallback((t: number, autoPlay = false) => {
@@ -127,10 +155,10 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
 
   // Load list for current page
   useEffect(() => {
-    const list = filePage ? getAnalysesForPage(filePage) : getAllAnalyses();
+    const list = activePageKey ? getAnalysesForPage(activePageKey) : getAllAnalyses();
     setAnalyses(list);
     setCheckedIds([]);
-  }, [filePage]);
+  }, [activePageKey]);
 
   // On first render after list loads, auto-focus a requested analysis (from Uploads View Report)
   useEffect(() => {
@@ -213,7 +241,21 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
         }
         if (numericId !== null) {
           const url = await getPlaybackUrl(numericId);
-          if (!canceled) setDetailVideoSrc(url);
+          // Backend may return a relative path for local storage (e.g. "/assets/<key>").
+          // Ensure we resolve that against the configured API base so the browser
+          // requests the asset from the API server (not the front-end dev server).
+          const resolved = ((): string => {
+            try {
+              if (!url) return url as string;
+              if (/^https?:\/\//i.test(url)) return url;
+              const base = String(API_BASE).replace(/\/$/, '');
+              if (url.startsWith('/')) return `${base}${url}`;
+              return `${base}/${url}`;
+            } catch {
+              return url as string;
+            }
+          })();
+          if (!canceled) setDetailVideoSrc(resolved);
           return;
         }
         if (stored) {
@@ -405,7 +447,8 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
             <h2>Reports</h2>
           </div>
         </div>
-
+        {/* Page cards removed from Reports — they appear only on Dashboard */}
+        {/* Per-analysis summary cards removed — Reports now shows aggregates and the table only */}
         {aggregate && (
           <>
             <div className="report-stats">

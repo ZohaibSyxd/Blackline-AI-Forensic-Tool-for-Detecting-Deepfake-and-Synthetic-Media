@@ -182,7 +182,7 @@ const App: React.FC = () => {
 
 	let content;
 	if (page === "dashboard") {
-		content = <Dashboard />;
+		content = <Dashboard pages={pages} />;
 	} else if (page === "reports") {
 		content = <Reports filePage={lastFilePage} />;
 	} else if (page.startsWith("file")) {
