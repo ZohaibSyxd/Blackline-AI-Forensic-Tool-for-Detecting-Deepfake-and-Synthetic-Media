@@ -15,6 +15,7 @@ sub-scores for transparency.
 """
 import json
 from pathlib import Path
+import os
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -32,7 +33,7 @@ except Exception:  # pragma: no cover - optional
 from .xception_infer import XceptionDeepfakeDetector, IMAGENET_MEAN, IMAGENET_STD
 from torchvision import transforms
 
-from transformers import AutoImageProcessor, TimesformerModel
+from transformers import AutoImageProcessor, TimesformerModel, TimesformerConfig
 import torch.nn as nn
 
 
@@ -85,8 +86,24 @@ def _ensure_timesformer(config_json: Optional[Path] = None, checkpoint: Optional
             size = int(cfg.get("size", size))
         except Exception:
             pass
-    processor = AutoImageProcessor.from_pretrained(model_name, use_fast=False)
-    base = TimesformerModel.from_pretrained(model_name, use_safetensors=True)
+    processor = None
+    base = None
+    # Prefer HF weights; fallback to local config offline if unavailable
+    try:
+        processor = AutoImageProcessor.from_pretrained(model_name, use_fast=False)
+        base = TimesformerModel.from_pretrained(model_name, use_safetensors=True)
+    except Exception:
+        try:
+            if config_json and config_json.exists():
+                cfg_dict = json.loads(config_json.read_text(encoding="utf-8"))
+                config = TimesformerConfig(**cfg_dict) if isinstance(cfg_dict, dict) else TimesformerConfig()
+            else:
+                config = TimesformerConfig()
+            base = TimesformerModel(config)
+            processor = None  # we'll build pixel_values manually
+        except Exception:
+            # leave base None to signal failure to caller
+            base = None
     hidden = base.config.hidden_size
     model = TSBinary(base, hidden)
     if checkpoint and checkpoint.exists():
@@ -177,25 +194,56 @@ def _predict_xception_detail(vpath: Path, checkpoint: Optional[Path], frames: in
 
 def _predict_timesformer(vpath: Path, config_json: Optional[Path], checkpoint: Optional[Path], frames: int = 8, size: int = 224) -> float:
     processor, model = _ensure_timesformer(config_json, checkpoint)
-    # use processor to handle resize/crop pipeline
+    if model is None:
+        return 0.5
     imgs, _, _, _ = _sample_frames_video_with_meta(vpath, frames)
     if not imgs:
         return 0.5
     device = pick_device()
     with torch.no_grad():
-        inputs = processor([imgs], return_tensors="pt", size={"shortest_edge": size})
-        pixel_values = inputs["pixel_values"].to(device)  # (1, T, C, H, W)
+        if processor is not None:
+            inputs = processor([imgs], return_tensors="pt", size={"shortest_edge": size})
+            pixel_values = inputs["pixel_values"].to(device)  # (1, T, C, H, W)
+        else:
+            # Manual preprocessing when HF processor is unavailable (offline)
+            from torchvision import transforms as tvt
+            tfm = tvt.Compose([tvt.Resize((size, size)), tvt.ToTensor(), tvt.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)])
+            tensors = [tfm(im) for im in imgs]  # list (C,H,W)
+            pixel_values = torch.stack(tensors, dim=0).unsqueeze(0).to(device)  # (1, T, C, H, W)
         logits = model(pixel_values)
         prob = torch.sigmoid(logits)[0].item()
         return float(prob)
 
 
+def _resolve_models_root(models_root: Path | None = None) -> Path:
+    """Resolve a robust models directory across different Docker contexts.
+    Tries in order: explicit arg, $MODELS_DIR, ../../models (relative to this file),
+    CWD/backend/models, ../../../backend/models.
+    """
+    if models_root and Path(models_root).exists():
+        return Path(models_root)
+    env_dir = os.getenv("MODELS_DIR")
+    if env_dir and Path(env_dir).exists():
+        return Path(env_dir)
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parents[2] / "models",                # /app/backend/models
+        Path.cwd() / "backend" / "models",         # CWD-based
+        here.parents[3] / "backend" / "models",    # /app/backend/backend/models (bad context)
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    # Fallback to first candidate even if missing (to preserve path shape)
+    return candidates[0]
+
+
 def predict_fusion_single(video_path: Path, models_root: Path | None = None) -> Dict[str, object]:
     """Run Xception + TimeSformer and return a fused probability dict.
 
-    models_root: folder containing model files (defaults to backend/models)
+    models_root: folder containing model files (defaults to resolved models directory)
     """
-    root = Path(models_root) if models_root else Path("backend/models")
+    root = _resolve_models_root(models_root)
     x_ckpt = root / "xception_best.pth"
     ts_ckpt = root / "timesformer_best.pt"
     ts_cfg  = root / "timesformer_best.config.json"
@@ -204,12 +252,22 @@ def predict_fusion_single(video_path: Path, models_root: Path | None = None) -> 
         xs, xs_list, xs_idxs, xs_fps, xs_total = _predict_xception_detail(video_path, x_ckpt if x_ckpt.exists() else None, frames=24, agg="p95")
     except Exception:
         xs, xs_list, xs_idxs, xs_fps, xs_total = 0.5, [], [], 0.0, 0
+    ts_valid = True
     try:
         ts = _predict_timesformer(video_path, ts_cfg if ts_cfg.exists() else None, ts_ckpt if ts_ckpt.exists() else None, frames=8, size=224)
     except Exception:
         ts = 0.5
+        ts_valid = False
 
-    fused = (xs + ts) / 2.0
+    xs_valid = bool(xs_list) and (xs_fps is not None)
+    if xs_valid and ts_valid:
+        fused = (xs + ts) / 2.0
+    elif xs_valid:
+        fused = xs
+    elif ts_valid:
+        fused = ts
+    else:
+        fused = 0.5
     label = "fake" if fused >= 0.5 else "real"
     # Prepare per-frame timeline for Xception samples
     frame_scores = []
@@ -218,7 +276,7 @@ def predict_fusion_single(video_path: Path, models_root: Path | None = None) -> 
             t = (float(idx) / xs_fps) if xs_fps and xs_fps > 0 else None
             frame_scores.append({"index": int(idx), "time_s": t, "prob": float(prob)})
 
-    return {
+    out = {
         "score": float(fused),
         "label": label,
         "method": "fusion-blend(avg(xception,timesformer))",
@@ -228,3 +286,9 @@ def predict_fusion_single(video_path: Path, models_root: Path | None = None) -> 
         "frame_fps": float(xs_fps) if xs_fps else None,
         "frame_total": int(xs_total) if xs_total else None,
     }
+    # Debug components: whether we believe each branch contributed meaningfully
+    out["components"] = {
+        "xception": {"ckpt_present": x_ckpt.exists(), "valid": xs_valid},
+        "timesformer": {"ckpt_present": ts_ckpt.exists(), "valid": ts_valid},
+    }
+    return out

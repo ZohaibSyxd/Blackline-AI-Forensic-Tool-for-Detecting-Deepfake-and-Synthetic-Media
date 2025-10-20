@@ -80,8 +80,10 @@ def collate_batch(batch):
 class XceptionDeepfakeDetector:
     def __init__(self, checkpoint_path: Optional[str] = None, device: Optional[str] = None):
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
-        # Binary head (1 logit)
-        self.model = timm.create_model("legacy_xception", pretrained=True, num_classes=1)
+        # Binary head (1 logit). If a fine-tuned checkpoint is provided, avoid downloading
+        # ImageNet weights by constructing the model with pretrained=False.
+        pretrained_flag = False if checkpoint_path else True
+        self.model = timm.create_model("legacy_xception", pretrained=pretrained_flag, num_classes=1)
         if checkpoint_path:
             ckpt = torch.load(checkpoint_path, map_location="cpu")
             state_dict = ckpt.get("state_dict", ckpt)
