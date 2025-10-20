@@ -38,8 +38,9 @@ from .validate_media import validate_asset
 from .utils import summarize_ffprobe
 from .models.df_detector import predict_deepfake
 # Note: heavy DL modules (torch/transformers) are imported lazily inside the route handler
-from .models.copy_move_live import predict_copy_move_single
-from .models.lbp_live import predict_lbp_single
+# Optional heavy/experimental models are imported lazily within route handlers
+# to avoid startup failures in environments where the files or dependencies
+# are not present (e.g., Cloud Run minimal images).
 from .auth import handle_login, handle_signup, get_current_user, to_public, SignupRequest
 from .db import init_db, get_db
 from . import models_db  # ensure models are imported
@@ -47,7 +48,9 @@ from sqlalchemy.orm import Session
 from fastapi import Request
 from .storage import get_storage
 
-DATA_ROOT = Path("backend/data")
+# Use writable data root; on Cloud Run the image FS is read-only except /tmp
+_default_data_root = "/tmp/data" if os.getenv("PORT") else "backend/data"
+DATA_ROOT = Path(os.getenv("DATA_ROOT", _default_data_root))
 RAW_ROOT = DATA_ROOT / "raw"
 UPLOAD_ROOT = DATA_ROOT / "uploads"
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
@@ -97,6 +100,10 @@ class AnalyzeResponse(BaseModel):
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+@app.get("/")
+def root():
+    return {"service": "blackline-api", "status": "ok"}
 
 @app.get("/api/buildinfo")
 def buildinfo():
@@ -331,8 +338,16 @@ async def analyze(file: UploadFile = File(...), model: str = Form("stub"), job_i
     model = (model or "stub").lower().strip()
     _write_progress(job_id, "model", 65, f"Running model: {model}")
     if model in ("copy_move", "copymove", "cm"):
+        try:
+            from .models.copy_move_live import predict_copy_move_single  # type: ignore
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Copy-Move model unavailable: {e}")
         df_pred = predict_copy_move_single(video_abs, sha256=ingest_rec["sha256"])  # returns score/label/method + cm_*
     elif model in ("lbp", "lbp_rf", "lbp-model"):
+        try:
+            from .models.lbp_live import predict_lbp_single  # type: ignore
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"LBP model unavailable: {e}")
         df_pred = predict_lbp_single(video_abs)
     elif model in ("dl", "deep", "deep_learning", "full", "fusion"):
         # Online fusion (Xception + TimeSformer) for a single asset
@@ -456,8 +471,16 @@ def analyze_asset(req: AnalyzeAssetRequest, user = Depends(get_current_user)):
 
     _write_progress(job_id, "model", 65, f"Running model: {model}")
     if model in ("copy_move", "copymove", "cm"):
+        try:
+            from .models.copy_move_live import predict_copy_move_single  # type: ignore
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Copy-Move model unavailable: {e}")
         df_pred = predict_copy_move_single(video_abs, sha256=(a.sha256 or ""))
     elif model in ("lbp", "lbp_rf", "lbp-model"):
+        try:
+            from .models.lbp_live import predict_lbp_single  # type: ignore
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"LBP model unavailable: {e}")
         df_pred = predict_lbp_single(video_abs)
     elif model in ("dl", "deep", "deep_learning", "full", "fusion"):
         try:

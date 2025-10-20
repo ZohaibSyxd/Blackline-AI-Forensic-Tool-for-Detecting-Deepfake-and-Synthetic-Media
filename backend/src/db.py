@@ -27,12 +27,35 @@ except Exception:
   pass
 
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./backend/data/dev.db")
+_default_sqlite = "sqlite:////tmp/data/dev.db" if os.getenv("PORT") else "sqlite:///./backend/data/dev.db"
+DATABASE_URL = os.environ.get("DATABASE_URL", _default_sqlite)
 
 # For SQLite, need check_same_thread 
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
+
+# If using SQLite on filesystem, ensure parent directory exists
+if DATABASE_URL.startswith("sqlite"):
+  try:
+    # Extract path after 'sqlite:///' or 'sqlite:////'
+    # Formats: sqlite:///relative/path.db  or sqlite:////absolute/path.db
+    url = DATABASE_URL[len("sqlite://"):]
+    # strip leading slashes to detect absolute vs relative
+    path_part = url.lstrip("/")
+    # Reconstruct filesystem path respecting absolute indicator
+    if url.startswith("/"):
+      fs_path = "/" + path_part
+    else:
+      fs_path = path_part
+    # Ignore special cases like :memory:
+    if fs_path and not fs_path.startswith(":"):
+      import os as _os
+      parent = _os.path.dirname(fs_path)
+      if parent and not _os.path.exists(parent):
+        _os.makedirs(parent, exist_ok=True)
+  except Exception:
+    pass
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
