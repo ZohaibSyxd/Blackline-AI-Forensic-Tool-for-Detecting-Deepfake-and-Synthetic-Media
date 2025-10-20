@@ -355,6 +355,22 @@ def analyze_asset(req: AnalyzeAssetRequest, user = Depends(get_current_user)):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to retrieve remote asset: {e}")
 
+    # Emit a quick check so the UI can see path details
+    try:
+        size_bytes = None
+        try:
+            size_bytes = Path(video_abs).stat().st_size if Path(video_abs).exists() else None
+        except Exception:
+            size_bytes = None
+        _write_progress(
+            job_id,
+            "prepare",
+            20,
+            f"Path resolved: {str(video_abs)} | exists={Path(video_abs).exists()} | size={size_bytes}"
+        )
+    except Exception:
+        pass
+
     # Build ingest-like record (reflecting the path used for analysis/probing)
     ingest_rec = {
         "action": "ingest",
