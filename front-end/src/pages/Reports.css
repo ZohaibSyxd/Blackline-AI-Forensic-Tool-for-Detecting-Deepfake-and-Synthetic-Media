@@ -391,3 +391,14 @@
 .frame-scores .fs-bar[data-h]{ --h: attr(data-h number); }
 .frame-meta{ font-size:12px; color: #6b7280; margin-top:4px; }
 :root.dark .frame-meta{ color: var(--muted); }
+
+/* ELA frames grid */
+.ela-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap:12px; padding:12px; }
+.ela-item { text-decoration:none; color:inherit; }
+.ela-item figure { margin:0; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; display:flex; flex-direction:column; }
+.ela-item img { width:100%; height:auto; display:block; aspect-ratio: 4 / 3; object-fit: cover; background:#fff; }
+.ela-item .cap { font-size:12px; color:#6b7280; padding:6px 8px; border-top:1px solid #eef2f7; }
+
+/* ELA actions */
+.ela-actions { margin:8px 0 0; display:flex; align-items:center; gap:8px; }
+.ela-error { color:#b91c1c; }

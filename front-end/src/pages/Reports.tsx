@@ -3,6 +3,7 @@ import "./Reports.css";
 import { getAnalysesForPage, getAllAnalyses, StoredAnalysisSummary, deleteAnalyses, upsertAnalysis } from '../state/analysisStore';
 import { removeFile as removePersistedFile } from '../utils/uploadPersistence';
 import { getPlaybackUrl } from '../utils/assetsApi';
+import { getAuthState } from '../state/authStore';
 
 // Prefer configured API base; otherwise default to same-origin to work behind proxies
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || (typeof window !== 'undefined' ? window.location.origin : "");
@@ -130,6 +131,8 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
   const [videoTime, setVideoTime] = useState(0);
   const [mediaDuration, setMediaDuration] = useState<number | null>(null);
   const [detailVideoSrc, setDetailVideoSrc] = useState<string | undefined>(undefined);
+  const [elaLoading, setElaLoading] = useState<boolean>(false);
+  const [elaError, setElaError] = useState<string | null>(null);
   // Add state for selected card
   const [selectedCardId, setSelectedCardId] = useState<string | undefined>(undefined);
 
@@ -548,6 +551,66 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                   <div><span className="k">Deepfake %</span><span className="v">{((selected.summary.deepfake_likelihood||0)*100).toFixed(2)}%</span></div>
                   <div><span className="k">Label</span><span className="v">{selected.summary.deepfake_label || '—'}</span></div>
                 </div>
+                {(() => {
+                  // Generate ELA frames action button
+                  const assetIdUnknown = (selected as any)?.raw?.asset?.asset_id;
+                  const numericId = ((): number | null => {
+                    if (assetIdUnknown === undefined || assetIdUnknown === null) return null;
+                    const n = Number(assetIdUnknown);
+                    return (Number.isFinite(n) && String(n) === String(assetIdUnknown).trim()) ? n : null;
+                  })();
+                  async function handleGenerateELA() {
+                    setElaError(null); setElaLoading(true);
+                    try {
+                      const tok = getAuthState().token;
+                      const headers: Record<string,string> = { 'Content-Type': 'application/json' };
+                      if (tok) headers['Authorization'] = `Bearer ${tok}`;
+                      // Choose endpoint based on whether we have a persisted Asset id
+                      let res: Response;
+                      if (numericId !== null) {
+                        res = await fetch(`${API_BASE}/api/ela/generate`, {
+                          method: 'POST', headers,
+                          body: JSON.stringify({ asset_id: numericId, frames: 12, quality: 90, scale: 12.0 }),
+                        });
+                      } else {
+                        const sp = (selected as any)?.raw?.asset?.stored_path;
+                        const sha = (selected as any)?.raw?.asset?.sha256;
+                        if (!sp) throw new Error('No asset reference for ELA');
+                        res = await fetch(`${API_BASE}/api/ela/generate-by-path`, {
+                          method: 'POST', headers,
+                          body: JSON.stringify({ stored_path: sp, sha256: sha, frames: 12, quality: 90, scale: 12.0 }),
+                        });
+                      }
+                      if (!res.ok) throw new Error(await res.text());
+                      const data = await res.json();
+                      // Update selected summary in-place so ELA section renders immediately
+                      const list = Array.isArray(data.ela_frames) ? data.ela_frames : [];
+                      const updated = { ...selected } as any;
+                      updated.summary = { ...(updated.summary || {}), ela_frames: list };
+                      setSelected(updated);
+                      // Persist change so ELA frames survive refresh
+                      try {
+                        upsertAnalysis({
+                          ...(updated as any),
+                          summary: updated.summary,
+                        } as any);
+                        // Re-read analyses list for the current page
+                        const list2 = activePageKey ? getAnalysesForPage(activePageKey) : getAllAnalyses();
+                        setAnalyses(list2);
+                      } catch {}
+                    } catch (e: any) {
+                      setElaError(e?.message || 'Failed to generate ELA frames');
+                    } finally { setElaLoading(false); }
+                  }
+                  return (
+                    <div className="ela-actions">
+                      <button className="btn" onClick={handleGenerateELA} disabled={elaLoading}>
+                        {elaLoading ? 'Generating ELA…' : 'Generate ELA frames'}
+                      </button>
+                      {elaError ? <span className="muted ela-error">{elaError}</span> : null}
+                    </div>
+                  );
+                })()}
                 { (selected.summary as any)?.overlay_uri ? (
                   <details className="overlay-block" open>
                     <summary>Overlay</summary>
@@ -655,6 +718,71 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                           </>
                         )}
                       </div>
+                    </details>
+                  );
+                })()}
+                {(() => {
+                  // ELA frames section (always show a dropdown).
+                  // Accepted keys anywhere in summary or raw.summary:
+                  //  - ela_uris: string[]
+                  //  - ela_frames: Array<{ uri: string, time_s?: number, index?: number }>
+                  //  - ela: { uris?: string[], frames?: Array<...> }
+                  const s: any = selected;
+                  const grab = (obj: any) => {
+                    if (!obj) return { uris: null as string[]|null, frames: null as any[]|null };
+                    const directUris = Array.isArray(obj.ela_uris) ? obj.ela_uris as string[] : null;
+                    const directFrames = Array.isArray(obj.ela_frames) ? obj.ela_frames as any[] : null;
+                    const nestedUris = Array.isArray(obj.ela?.uris) ? obj.ela.uris as string[] : null;
+                    const nestedFrames = Array.isArray(obj.ela?.frames) ? obj.ela.frames as any[] : null;
+                    return { uris: directUris || nestedUris, frames: directFrames || nestedFrames };
+                  };
+                  const a = grab(s?.summary);
+                  const b = grab(s?.raw?.summary);
+                  type E = { uri: string; time_s?: number|null; index?: number };
+                  let frames: E[] = [];
+                  if (a.frames && a.frames.length) frames = a.frames as E[];
+                  else if (a.uris && a.uris.length) frames = a.uris.map((u: string)=>({ uri: u }));
+                  else if (b.frames && b.frames.length) frames = b.frames as E[];
+                  else if (b.uris && b.uris.length) frames = b.uris.map((u: string)=>({ uri: u }));
+                  // Normalize and dedupe by URI
+                  const seen = new Set<string>();
+                  const list = (frames || []).filter((f: any) => !!f && typeof f.uri === 'string' && f.uri.length>0)
+                    .filter((f: any) => { if (seen.has(f.uri)) return false; seen.add(f.uri); return true; });
+                  const resolve = (uri: string) => {
+                    try {
+                      if (!uri) return uri;
+                      if (/^(https?:)?\/\//i.test(uri)) return uri; // absolute or protocol-relative
+                      if (/^data:/i.test(uri)) return uri; // data URL
+                      const base = String(API_BASE).replace(/\/$/, '');
+                      const path = String(uri).replace(/^\/+/, '');
+                      return `${base}/static/${path}`;
+                    } catch { return uri; }
+                  };
+                  return (
+                    <details className="overlay-block">
+                      <summary>ELA frames{list.length ? ` (${list.length})` : ''}</summary>
+                      {list.length ? (
+                        <div className="ela-grid">
+                          {list.map((f: E, i: number) => {
+                            const cap = ((): string => {
+                              const t = (typeof f.time_s === 'number' && Number.isFinite(f.time_s)) ? `${(f.time_s as number).toFixed(2)}s` : undefined;
+                              const idx = (typeof f.index === 'number' && Number.isFinite(f.index)) ? `#${f.index}` : undefined;
+                              return t ? (idx ? `${t} • ${idx}` : t) : (idx || `frame ${i+1}`);
+                            })();
+                            const src = resolve(f.uri);
+                            return (
+                              <a key={i} className="ela-item" href={src} target="_blank" rel="noreferrer" title={cap}>
+                                <figure>
+                                  <img src={src} loading="lazy" alt={cap || 'ELA frame'} />
+                                  <figcaption className="cap">{cap}</figcaption>
+                                </figure>
+                              </a>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="overlay-content"><div className="muted">No ELA frames available for this analysis.</div></div>
+                      )}
                     </details>
                   );
                 })()}

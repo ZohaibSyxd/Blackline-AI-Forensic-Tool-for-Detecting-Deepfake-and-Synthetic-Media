@@ -239,6 +239,255 @@ def get_progress(job_id: str):
     except Exception:
         return {"job_id": job_id, "stage": "unknown", "percent": 0}
 
+# -------------------------- ELA Frames Generation --------------------------
+class ELAGenerateReq(BaseModel):
+    asset_id: int
+    frames: int | None = 12
+    quality: int | None = 90
+    scale: float | None = 10.0
+
+@app.post("/api/ela/generate")
+def generate_ela_frames(req: ELAGenerateReq, user = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Generate Error Level Analysis (ELA) frames for an asset.
+    - For videos: sample N frames uniformly and compute ELA for each.
+    - For images: compute a single ELA image.
+
+    Returns:
+      { ela_frames: [{ uri, time_s?, index? }], count: int }
+    Where `uri` is relative to the /static mount (DERIVED_DIR).
+    """
+    from PIL import Image, ImageChops
+    import io
+    import cv2  # type: ignore
+    import json
+
+    # Lookup asset and authorization
+    asset = db.query(models_db.Asset).filter(models_db.Asset.id == req.asset_id, models_db.Asset.user_id == user.id).one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    # Resolve filesystem path (supports both local stored_path and remote_key)
+    stored_path = asset.stored_path
+    abspath = None
+    temp_download = None
+    if stored_path:
+        abspath = RAW_ROOT / stored_path
+        if not abspath.exists():
+            # If the local copy is missing but we have a remote key, fetch a temp copy
+            if asset.remote_key:
+                try:
+                    temp_download = STORAGE.download_to_temp(asset.remote_key)
+                    abspath = temp_download
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"Failed to retrieve remote asset: {e}")
+            else:
+                raise HTTPException(status_code=404, detail="Stored file missing")
+    elif asset.remote_key:
+        try:
+            temp_download = STORAGE.download_to_temp(asset.remote_key)
+            abspath = temp_download
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to retrieve remote asset: {e}")
+    else:
+        raise HTTPException(status_code=400, detail="Asset has no stored path")
+
+    # Output directory under derived
+    key = asset.sha256 or f"asset_{asset.id}"
+    out_dir = DERIVED_DIR / "ela" / key
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    def _ela_from_pil(pil_img: Image.Image, quality: int, scale: float) -> Image.Image:
+        buf = io.BytesIO()
+        pil_img.save(buf, format='JPEG', quality=max(1, min(100, int(quality))))
+        buf.seek(0)
+        jpeg_img = Image.open(buf).convert('RGB')
+        diff = ImageChops.difference(pil_img.convert('RGB'), jpeg_img)
+        # scale contrast by multiplying pixel values
+        def _mul(x: int) -> int:
+            v = int(float(x) * float(scale))
+            return 255 if v > 255 else (0 if v < 0 else v)
+        return diff.point(_mul)
+
+    quality = int(req.quality or 90)
+    scale = float(req.scale or 10.0)
+    frames_target = int(req.frames or 12)
+
+    ela_items: list[dict] = []
+
+    try:
+        mime = (asset.mime or '').lower()
+        if mime.startswith('video/'):
+            cap = cv2.VideoCapture(str(abspath))
+            if not cap.isOpened():
+                raise HTTPException(status_code=500, detail="Failed to open video for ELA")
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+            # Sample evenly across the duration
+            n = max(1, min(frames_target, total if total > 0 else frames_target))
+            indices = []
+            if total and total > 0:
+                for i in range(n):
+                    idx = int(round((i + 0.5) * (total / n)))
+                    idx = max(0, min(total - 1, idx))
+                    indices.append(idx)
+            else:
+                indices = list(range(n))
+            used = set()
+            for idx in indices:
+                if idx in used: continue
+                used.add(idx)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    continue
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil = Image.fromarray(rgb)
+                ela_img = _ela_from_pil(pil, quality, scale)
+                # Save as PNG
+                t = (idx / fps) if (fps and fps > 0) else None
+                name = f"f_{idx:06d}.png"
+                out_path = out_dir / name
+                ela_img.save(str(out_path), format='PNG')
+                ela_items.append({
+                    "uri": f"ela/{key}/{name}",
+                    "time_s": (float(t) if t is not None else None),
+                    "index": int(idx),
+                })
+            cap.release()
+        else:
+            # Treat as image
+            pil = Image.open(str(abspath)).convert('RGB')
+            ela_img = _ela_from_pil(pil, quality, scale)
+            name = Path(stored_path).name
+            stem = Path(name).stem
+            out_path = out_dir / f"{stem}_ela.png"
+            ela_img.save(str(out_path), format='PNG')
+            ela_items.append({
+                "uri": f"ela/{key}/{out_path.name}",
+                "time_s": None,
+                "index": None,
+            })
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"ELA generation failed: {e}")
+    finally:
+        # Clean up any temp download used
+        try:
+            if temp_download and Path(temp_download).exists():
+                Path(temp_download).unlink()
+        except Exception:
+            pass
+
+    return { "ela_frames": ela_items, "count": len(ela_items) }
+
+# Fallback: allow generating ELA by stored_path for ad-hoc analyses (no DB asset)
+class ELAGenerateByPathReq(BaseModel):
+    stored_path: str
+    sha256: str | None = None
+    frames: int | None = 12
+    quality: int | None = 90
+    scale: float | None = 10.0
+
+@app.post("/api/ela/generate-by-path")
+def generate_ela_frames_by_path(req: ELAGenerateByPathReq, user = Depends(get_current_user)):
+    """
+    Generate ELA frames for a file referenced by its ingest stored_path (e.g., "<sha>/<name>").
+    This is used for analyses created via /api/analyze that do not persist an Asset row.
+    """
+    from PIL import Image, ImageChops
+    import io
+    import cv2  # type: ignore
+    from pathlib import Path as _P
+
+    # Resolve and validate path under RAW_ROOT
+    try:
+        sp = (req.stored_path or "").lstrip("/")
+        if not sp:
+            raise HTTPException(status_code=400, detail="stored_path required")
+        abspath = (RAW_ROOT / sp).resolve()
+        root = RAW_ROOT.resolve()
+        if not str(abspath).startswith(str(root)):
+            raise HTTPException(status_code=400, detail="Invalid stored_path")
+        if not abspath.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Bad stored_path: {e}")
+
+    # Pick output key: prefer provided sha256; fallback to first directory segment
+    parts = _P(sp).parts
+    key = (req.sha256 or (parts[0] if parts else "file"))
+    out_dir = DERIVED_DIR / "ela" / key
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    def _ela_from_pil(pil_img: Image.Image, quality: int, scale: float) -> Image.Image:
+        buf = io.BytesIO()
+        pil_img.save(buf, format='JPEG', quality=max(1, min(100, int(quality))))
+        buf.seek(0)
+        jpeg_img = Image.open(buf).convert('RGB')
+        diff = ImageChops.difference(pil_img.convert('RGB'), jpeg_img)
+        def _mul(x: int) -> int:
+            v = int(float(x) * float(scale))
+            return 255 if v > 255 else (0 if v < 0 else v)
+        return diff.point(_mul)
+
+    quality = int(req.quality or 90)
+    scale = float(req.scale or 10.0)
+    frames_target = int(req.frames or 12)
+
+    ela_items: list[dict] = []
+    try:
+        ext = abspath.suffix.lower().strip('.')
+        is_video = ext in {"mp4","mov","mkv","avi","webm","m4v"}
+        if is_video:
+            cap = cv2.VideoCapture(str(abspath))
+            if not cap.isOpened():
+                raise HTTPException(status_code=500, detail="Failed to open video for ELA")
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+            n = max(1, min(frames_target, total if total > 0 else frames_target))
+            indices = []
+            if total and total > 0:
+                for i in range(n):
+                    idx = int(round((i + 0.5) * (total / n)))
+                    idx = max(0, min(total - 1, idx))
+                    indices.append(idx)
+            else:
+                indices = list(range(n))
+            used = set()
+            for idx in indices:
+                if idx in used: continue
+                used.add(idx)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    continue
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil = Image.fromarray(rgb)
+                ela_img = _ela_from_pil(pil, quality, scale)
+                t = (idx / fps) if (fps and fps > 0) else None
+                name = f"f_{idx:06d}.png"
+                out_path = out_dir / name
+                ela_img.save(str(out_path), format='PNG')
+                ela_items.append({"uri": f"ela/{key}/{name}", "time_s": (float(t) if t is not None else None), "index": int(idx)})
+            cap.release()
+        else:
+            pil = Image.open(str(abspath)).convert('RGB')
+            ela_img = _ela_from_pil(pil, quality, scale)
+            stem = _P(abspath.name).stem
+            out_path = out_dir / f"{stem}_ela.png"
+            ela_img.save(str(out_path), format='PNG')
+            ela_items.append({"uri": f"ela/{key}/{out_path.name}", "time_s": None, "index": None})
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"ELA generation failed: {e}")
+
+    return {"ela_frames": ela_items, "count": len(ela_items)}
+
 # ------------------------- Auth Endpoints (Prototype) -----------------------
 @app.post("/api/auth/login")
 def login(token = Depends(handle_login)):
