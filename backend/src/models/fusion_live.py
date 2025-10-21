@@ -15,7 +15,7 @@ sub-scores for transparency.
 """
 import json
 from pathlib import Path
-import os
+import os, math
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -55,6 +55,14 @@ _ts_loaded_keys = 0
 _ts_total_keys = 0
 
 TS_DEFAULT_MODEL_ID = "facebook/timesformer-base-finetuned-k400"
+
+def _sigmoid(z: float) -> float:
+    return 1.0 / (1.0 + math.exp(-z))
+
+def _logit(p: float, eps: float = 1e-6) -> float:
+    # clamp to avoid infinities
+    p = min(1.0 - eps, max(eps, float(p)))
+    return math.log(p / (1.0 - p))
 
 
 def pick_device() -> torch.device:
@@ -290,37 +298,72 @@ def _resolve_models_root(models_root: Path | None = None) -> Path:
     return candidates[0]
 
 
-def predict_fusion_single(video_path: Path, models_root: Path | None = None) -> Dict[str, object]:
-    """Run Xception + TimeSformer and return a fused probability dict.
+def predict_fusion_single(
+    video_path: Path,
+    models_root: Optional[Path] = None,
+    *,
+    alpha: float = 0,              # weight for Xception
+    fake_bias_logit: float = 0.0,    # +ve pushes probability toward FAKE
+    temp: float = 1.0,               # temperature scaling (1.0 = neutral)
+    label_threshold: float = 0.5,    # decision threshold
+) -> Dict[str, object]:
+    """Run Xception + TimeSformer and return a fused probability dict with optional FAKE-bias.
 
-    models_root: folder containing model files (defaults to resolved models directory)
+    alpha:            fused_raw = alpha*Xception + (1-alpha)*TimeSformer
+    fake_bias_logit:  added in logit space; e.g., +0.5 moderately boosts FAKE probabilities
+    temp:             divides the logit before sigmoid; <1 sharpens, >1 smooths
+    label_threshold:  threshold for turning score into label
     """
+    # Allow env overrides (handy in prod or CLI)
+    alpha = float(os.getenv("BL_FUSION_ALPHA", alpha))
+    fake_bias_logit = float(os.getenv("BL_FUSION_FAKE_BIAS", fake_bias_logit))
+    temp = float(os.getenv("BL_FUSION_TEMP", temp))
+    label_threshold = float(os.getenv("BL_FUSION_LABEL_THR", label_threshold))
+
     root = _resolve_models_root(models_root)
     x_ckpt = root / "xception_best.pth"
     ts_ckpt = root / "timesformer_best.pt"
     ts_cfg  = root / "timesformer_best.config.json"
 
     try:
-        xs, xs_list, xs_idxs, xs_fps, xs_total = _predict_xception_detail(video_path, x_ckpt if x_ckpt.exists() else None, frames=24, agg="p95")
+        xs, xs_list, xs_idxs, xs_fps, xs_total = _predict_xception_detail(
+            video_path, x_ckpt if x_ckpt.exists() else None, frames=24, agg="p95"
+        )
     except Exception:
         xs, xs_list, xs_idxs, xs_fps, xs_total = 0.5, [], [], 0.0, 0
+
     ts_valid = True
     try:
-        ts = _predict_timesformer(video_path, ts_cfg if ts_cfg.exists() else None, ts_ckpt if ts_ckpt.exists() else None, frames=8, size=224)
+        ts = _predict_timesformer(
+            video_path,
+            ts_cfg if ts_cfg.exists() else None,
+            ts_ckpt if ts_ckpt.exists() else None,
+            frames=8, size=224
+        )
     except Exception:
         ts = 0.5
         ts_valid = False
 
     xs_valid = bool(xs_list) and (xs_fps is not None)
+
+    # Base fusion (handles branch dropouts)
     if xs_valid and ts_valid:
-        fused = (xs + ts) / 2.0
+        fused_raw = alpha * float(xs) + (1.0 - alpha) * float(ts)
     elif xs_valid:
-        fused = xs
+        fused_raw = float(xs)
     elif ts_valid:
-        fused = ts
+        fused_raw = float(ts)
     else:
-        fused = 0.5
-    label = "fake" if fused >= 0.5 else "real"
+        fused_raw = 0.5
+
+    # ---- Bias toward FAKE in logit space (calibrated-friendly) ----
+    # p' = sigmoid( (logit(p) + fake_bias_logit) / temp )
+    z = _logit(fused_raw)
+    z = (z + fake_bias_logit) / (temp if temp > 0 else 1.0)
+    fused = _sigmoid(z)
+
+    label = "fake" if fused >= label_threshold else "real"
+
     # Prepare per-frame timeline for Xception samples
     frame_scores = []
     if xs_list and xs_idxs:
@@ -331,16 +374,19 @@ def predict_fusion_single(video_path: Path, models_root: Path | None = None) -> 
     out = {
         "score": float(fused),
         "label": label,
-        "method": "fusion-blend(avg(xception,timesformer))",
+        "method": f"fusion-blend",
         "xception_agg_score": float(xs),
         "timesformer_score": float(ts),
         "frame_scores": frame_scores,
         "frame_fps": float(xs_fps) if xs_fps else None,
         "frame_total": int(xs_total) if xs_total else None,
-    }
-    # Debug components: whether we believe each branch contributed meaningfully
-    out["components"] = {
-        "xception": {"ckpt_present": x_ckpt.exists(), "valid": xs_valid},
-        "timesformer": {"ckpt_present": ts_ckpt.exists(), "valid": ts_valid},
+        "alpha": float(alpha),
+        "fake_bias_logit": float(fake_bias_logit),
+        "temperature": float(temp),
+        "label_threshold": float(label_threshold),
+        "components": {
+            "xception": {"ckpt_present": x_ckpt.exists(), "valid": xs_valid},
+            "timesformer": {"ckpt_present": ts_ckpt.exists(), "valid": ts_valid},
+        },
     }
     return out
