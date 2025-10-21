@@ -36,7 +36,7 @@ import torch.nn as nn
 from PIL import Image
 import numpy as np
 from tqdm import tqdm
-from ..audit import audit_step
+from ...audit import audit_step
 
 # Preferred: decord; fallback: OpenCV
 try:
