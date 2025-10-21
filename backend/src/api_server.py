@@ -269,6 +269,7 @@ class ELAGenerateReq(BaseModel):
     frames: int | None = 12
     quality: int | None = 90
     scale: float | None = 10.0
+    threshold: float | None = None  # optional: for convenience return high_indices
 
 @app.post("/api/ela/generate")
 def generate_ela_frames(req: ELAGenerateReq, user = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -320,6 +321,7 @@ def generate_ela_frames(req: ELAGenerateReq, user = Depends(get_current_user), d
     key = asset.sha256 or f"asset_{asset.id}"
     out_dir = DERIVED_DIR / "ela" / key
     out_dir.mkdir(parents=True, exist_ok=True)
+    meta_path = out_dir / "meta.json"
 
     def _ela_from_pil(pil_img: Image.Image, quality: int, scale: float) -> Image.Image:
         buf = io.BytesIO()
@@ -368,6 +370,14 @@ def generate_ela_frames(req: ELAGenerateReq, user = Depends(get_current_user), d
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil = Image.fromarray(rgb)
                 ela_img = _ela_from_pil(pil, quality, scale)
+                # Compute simple metrics consistent with models/ela_detector
+                import numpy as _np
+                arr = _np.asarray(ela_img, dtype=_np.uint8)
+                gray = arr.max(axis=2) if arr.ndim == 3 else arr
+                ela_error_mean = float(gray.mean())
+                ela_error_max = float(gray.max())
+                # A bounded score for UI Top-K sorting
+                ela_score = max(0.0, min(1.0, 0.6 * min(1.0, ela_error_max / 255.0) + 0.4 * min(1.0, ela_error_mean / 60.0)))
                 # Save as PNG
                 t = (idx / fps) if (fps and fps > 0) else None
                 name = f"f_{idx:06d}.png"
@@ -377,12 +387,21 @@ def generate_ela_frames(req: ELAGenerateReq, user = Depends(get_current_user), d
                     "uri": f"ela/{key}/{name}",
                     "time_s": (float(t) if t is not None else None),
                     "index": int(idx),
+                    "ela_error_mean": ela_error_mean,
+                    "ela_error_max": ela_error_max,
+                    "ela_score": ela_score,
                 })
             cap.release()
         else:
             # Treat as image
             pil = Image.open(str(abspath)).convert('RGB')
             ela_img = _ela_from_pil(pil, quality, scale)
+            import numpy as _np
+            arr = _np.asarray(ela_img, dtype=_np.uint8)
+            gray = arr.max(axis=2) if arr.ndim == 3 else arr
+            ela_error_mean = float(gray.mean())
+            ela_error_max = float(gray.max())
+            ela_score = max(0.0, min(1.0, 0.6 * min(1.0, ela_error_max / 255.0) + 0.4 * min(1.0, ela_error_mean / 60.0)))
             name = Path(stored_path).name
             stem = Path(name).stem
             out_path = out_dir / f"{stem}_ela.png"
@@ -391,6 +410,9 @@ def generate_ela_frames(req: ELAGenerateReq, user = Depends(get_current_user), d
                 "uri": f"ela/{key}/{out_path.name}",
                 "time_s": None,
                 "index": None,
+                "ela_error_mean": ela_error_mean,
+                "ela_error_max": ela_error_max,
+                "ela_score": ela_score,
             })
     except HTTPException:
         raise
@@ -404,7 +426,18 @@ def generate_ela_frames(req: ELAGenerateReq, user = Depends(get_current_user), d
         except Exception:
             pass
 
-    return { "ela_frames": ela_items, "count": len(ela_items) }
+    # Persist meta for quick list endpoint
+    try:
+        import json as _json, time as _time
+        meta = {"frames": ela_items, "created_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())}
+        meta_path.write_text(_json.dumps(meta), encoding="utf-8")
+    except Exception:
+        pass
+    high = []
+    if req.threshold is not None:
+        thr = float(req.threshold)
+        high = [it.get("index") for it in ela_items if (it.get("ela_score") or 0) >= thr and it.get("index") is not None]
+    return { "ela_frames": ela_items, "count": len(ela_items), "high_indices": high or None }
 
 # List existing ELA frames for an asset (no regeneration)
 @app.get("/api/ela/list")
@@ -421,6 +454,16 @@ def list_ela_frames(asset_id: int, user = Depends(get_current_user), db: Session
     out_dir = DERIVED_DIR / "ela" / key
     if not out_dir.exists():
         return {"ela_frames": [], "count": 0}
+    # Prefer meta.json if present (contains metrics)
+    meta_path = out_dir / "meta.json"
+    if meta_path.exists():
+        import json as _json
+        try:
+            data = _json.loads(meta_path.read_text(encoding="utf-8"))
+            frames = data.get("frames") or []
+            return {"ela_frames": frames, "count": len(frames)}
+        except Exception:
+            pass
     items: list[dict] = []
     pat = re.compile(r"^f_(\d+)\.png$", re.IGNORECASE)
     for p in sorted(out_dir.glob("*.png")):
@@ -441,6 +484,7 @@ class LBPGenerateReq(BaseModel):
     asset_id: int
     frames: int | None = 12
     radius: int | None = 1
+    threshold: float | None = None
 
 @app.post("/api/lbp/generate")
 def generate_lbp_frames(req: LBPGenerateReq, user = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -490,6 +534,7 @@ def generate_lbp_frames(req: LBPGenerateReq, user = Depends(get_current_user), d
     key = asset.sha256 or f"asset_{asset.id}"
     out_dir = DERIVED_DIR / "lbp" / key
     out_dir.mkdir(parents=True, exist_ok=True)
+    meta_path = out_dir / "meta.json"
 
     def _lbp_image_from_gray(gray: np.ndarray, radius: int = 1) -> np.ndarray:
         """Compute basic 8-neighbor LBP code image for a grayscale uint8 array.
@@ -521,6 +566,20 @@ def generate_lbp_frames(req: LBPGenerateReq, user = Depends(get_current_user), d
             acc[x0:x1, y0:y1] |= (mask << bit)
         # Scale to 0..255 (already 0..255 range due to 8 bits)
         return acc.astype(np.uint8)
+
+    def _lbp_metrics(lbp_img: np.ndarray) -> dict:
+        # Histogram over 0..255
+        hist = np.bincount(lbp_img.flatten(), minlength=256).astype(np.float32)
+        total = float(hist.sum()) + 1e-6
+        p = hist / total
+        # Shannon entropy (base 2), normalized by log2(256)
+        import math as _math
+        ent = float(-np.sum(np.where(p > 0, p * np.log2(p), 0.0)))
+        ent_norm = max(0.0, min(1.0, ent / 8.0))  # log2(256)=8
+        std = float(lbp_img.std())
+        std_norm = max(0.0, min(1.0, std / 64.0))
+        score = max(0.0, min(1.0, 0.6 * ent_norm + 0.4 * std_norm))
+        return {"lbp_entropy": ent, "lbp_entropy_norm": ent_norm, "lbp_std": std, "lbp_score": score}
 
     frames_target = int(req.frames or 12)
     radius = int(req.radius or 1)
@@ -554,6 +613,7 @@ def generate_lbp_frames(req: LBPGenerateReq, user = Depends(get_current_user), d
                 lbp = _lbp_image_from_gray(gray, radius=radius)
                 # Colorize slightly for visual separation (apply colormap)
                 colored = cv2.applyColorMap(lbp, cv2.COLORMAP_MAGMA)
+                m = _lbp_metrics(lbp)
                 t = (idx / fps) if (fps and fps > 0) else None
                 name = f"f_{idx:06d}.png"
                 out_path = out_dir / name
@@ -564,6 +624,7 @@ def generate_lbp_frames(req: LBPGenerateReq, user = Depends(get_current_user), d
                     "uri": f"lbp/{key}/{name}",
                     "time_s": (float(t) if t is not None else None),
                     "index": int(idx),
+                    **m,
                 })
             cap.release()
         else:
@@ -574,6 +635,7 @@ def generate_lbp_frames(req: LBPGenerateReq, user = Depends(get_current_user), d
             lbp = _lbp_image_from_gray(gray, radius=radius)
             import cv2 as _cv
             colored = _cv.applyColorMap(lbp, _cv.COLORMAP_MAGMA)
+            m = _lbp_metrics(lbp)
             name = Path(stored_path).name
             stem = Path(name).stem
             out_path = out_dir / f"{stem}_lbp.png"
@@ -582,6 +644,7 @@ def generate_lbp_frames(req: LBPGenerateReq, user = Depends(get_current_user), d
                 "uri": f"lbp/{key}/{out_path.name}",
                 "time_s": None,
                 "index": None,
+                **m,
             })
     except HTTPException:
         raise
@@ -594,7 +657,17 @@ def generate_lbp_frames(req: LBPGenerateReq, user = Depends(get_current_user), d
         except Exception:
             pass
 
-    return { "lbp_frames": lbp_items, "count": len(lbp_items) }
+    try:
+        import json as _json, time as _time
+        meta = {"frames": lbp_items, "created_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())}
+        meta_path.write_text(_json.dumps(meta), encoding="utf-8")
+    except Exception:
+        pass
+    high = []
+    if req.threshold is not None:
+        thr = float(req.threshold)
+        high = [it.get("index") for it in lbp_items if (it.get("lbp_score") or 0) >= thr and it.get("index") is not None]
+    return { "lbp_frames": lbp_items, "count": len(lbp_items), "high_indices": high or None }
 
 # List LBP frames for an asset
 @app.get("/api/lbp/list")
@@ -607,6 +680,15 @@ def list_lbp_frames(asset_id: int, user = Depends(get_current_user), db: Session
     out_dir = DERIVED_DIR / "lbp" / key
     if not out_dir.exists():
         return {"lbp_frames": [], "count": 0}
+    meta_path = out_dir / "meta.json"
+    if meta_path.exists():
+        import json as _json
+        try:
+            data = _json.loads(meta_path.read_text(encoding="utf-8"))
+            frames = data.get("frames") or []
+            return {"lbp_frames": frames, "count": len(frames)}
+        except Exception:
+            pass
     items: list[dict] = []
     pat = re.compile(r"^f_(\d+)\.png$", re.IGNORECASE)
     for p in sorted(out_dir.glob("*.png")):
@@ -655,6 +737,7 @@ def generate_lbp_frames_by_path(req: LBPGenerateByPathReq, user = Depends(get_cu
     key = (req.sha256 or (parts[0] if parts else "file"))
     out_dir = DERIVED_DIR / "lbp" / key
     out_dir.mkdir(parents=True, exist_ok=True)
+    meta_path = out_dir / "meta.json"
 
     def _lbp_image_from_gray(gray: np.ndarray, radius: int = 1) -> np.ndarray:
         r = max(1, int(radius))
@@ -671,6 +754,18 @@ def generate_lbp_frames_by_path(req: LBPGenerateByPathReq, user = Depends(get_cu
             mask = (n_slice >= c_slice).astype(np.uint16)
             acc[x0:x1, y0:y1] |= (mask << bit)
         return acc.astype(np.uint8)
+
+    def _lbp_metrics(lbp_img: np.ndarray) -> dict:
+        hist = np.bincount(lbp_img.flatten(), minlength=256).astype(np.float32)
+        total = float(hist.sum()) + 1e-6
+        p = hist / total
+        import numpy as _np
+        ent = float(-_np.sum(_np.where(p > 0, p * _np.log2(p), 0.0)))
+        ent_norm = max(0.0, min(1.0, ent / 8.0))
+        std = float(lbp_img.std())
+        std_norm = max(0.0, min(1.0, std / 64.0))
+        score = max(0.0, min(1.0, 0.6 * ent_norm + 0.4 * std_norm))
+        return {"lbp_entropy": ent, "lbp_entropy_norm": ent_norm, "lbp_std": std, "lbp_score": score}
 
     frames_target = int(req.frames or 12)
     radius = int(req.radius or 1)
@@ -704,13 +799,14 @@ def generate_lbp_frames_by_path(req: LBPGenerateByPathReq, user = Depends(get_cu
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 lbp = _lbp_image_from_gray(gray, radius=radius)
                 colored = cv2.applyColorMap(lbp, cv2.COLORMAP_MAGMA)
+                m = _lbp_metrics(lbp)
                 t = (idx / fps) if (fps and fps > 0) else None
                 name = f"f_{idx:06d}.png"
                 out_path = out_dir / name
                 ok = cv2.imwrite(str(out_path), colored)
                 if not ok:
                     continue
-                lbp_items.append({"uri": f"lbp/{key}/{name}", "time_s": (float(t) if t is not None else None), "index": int(idx)})
+                lbp_items.append({"uri": f"lbp/{key}/{name}", "time_s": (float(t) if t is not None else None), "index": int(idx), **m})
             cap.release()
         else:
             from PIL import Image as _Image
@@ -723,12 +819,19 @@ def generate_lbp_frames_by_path(req: LBPGenerateByPathReq, user = Depends(get_cu
             stem = _P(abspath.name).stem
             out_path = out_dir / f"{stem}_lbp.png"
             _cv.imwrite(str(out_path), colored)
-            lbp_items.append({"uri": f"lbp/{key}/{out_path.name}", "time_s": None, "index": None})
+            m = _lbp_metrics(lbp)
+            lbp_items.append({"uri": f"lbp/{key}/{out_path.name}", "time_s": None, "index": None, **m})
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"LBP generation failed: {e}")
 
+    try:
+        import json as _json, time as _time
+        meta = {"frames": lbp_items, "created_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())}
+        meta_path.write_text(_json.dumps(meta), encoding="utf-8")
+    except Exception:
+        pass
     return {"lbp_frames": lbp_items, "count": len(lbp_items)}
 
 @app.get("/api/lbp/list-by-path")
@@ -743,6 +846,15 @@ def list_lbp_frames_by_path(stored_path: str, sha256: str | None = None, user = 
     out_dir = DERIVED_DIR / "lbp" / key
     if not out_dir.exists():
         return {"lbp_frames": [], "count": 0}
+    meta_path = out_dir / "meta.json"
+    if meta_path.exists():
+        import json as _json
+        try:
+            data = _json.loads(meta_path.read_text(encoding="utf-8"))
+            frames = data.get("frames") or []
+            return {"lbp_frames": frames, "count": len(frames)}
+        except Exception:
+            pass
     items: list[dict] = []
     pat = re.compile(r"^f_(\d+)\.png$", re.IGNORECASE)
     for p in sorted(out_dir.glob("*.png")):
@@ -1147,6 +1259,7 @@ class ELAGenerateByPathReq(BaseModel):
     frames: int | None = 12
     quality: int | None = 90
     scale: float | None = 10.0
+    threshold: float | None = None
 
 @app.post("/api/ela/generate-by-path")
 def generate_ela_frames_by_path(req: ELAGenerateByPathReq, user = Depends(get_current_user)):
@@ -1180,6 +1293,7 @@ def generate_ela_frames_by_path(req: ELAGenerateByPathReq, user = Depends(get_cu
     key = (req.sha256 or (parts[0] if parts else "file"))
     out_dir = DERIVED_DIR / "ela" / key
     out_dir.mkdir(parents=True, exist_ok=True)
+    meta_path = out_dir / "meta.json"
 
     def _ela_from_pil(pil_img: Image.Image, quality: int, scale: float) -> Image.Image:
         buf = io.BytesIO()
@@ -1226,25 +1340,47 @@ def generate_ela_frames_by_path(req: ELAGenerateByPathReq, user = Depends(get_cu
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil = Image.fromarray(rgb)
                 ela_img = _ela_from_pil(pil, quality, scale)
+                import numpy as _np
+                arr = _np.asarray(ela_img, dtype=_np.uint8)
+                gray = arr.max(axis=2) if arr.ndim == 3 else arr
+                ela_error_mean = float(gray.mean())
+                ela_error_max = float(gray.max())
+                ela_score = max(0.0, min(1.0, 0.6 * min(1.0, ela_error_max / 255.0) + 0.4 * min(1.0, ela_error_mean / 60.0)))
                 t = (idx / fps) if (fps and fps > 0) else None
                 name = f"f_{idx:06d}.png"
                 out_path = out_dir / name
                 ela_img.save(str(out_path), format='PNG')
-                ela_items.append({"uri": f"ela/{key}/{name}", "time_s": (float(t) if t is not None else None), "index": int(idx)})
+                ela_items.append({"uri": f"ela/{key}/{name}", "time_s": (float(t) if t is not None else None), "index": int(idx), "ela_error_mean": ela_error_mean, "ela_error_max": ela_error_max, "ela_score": ela_score})
             cap.release()
         else:
             pil = Image.open(str(abspath)).convert('RGB')
             ela_img = _ela_from_pil(pil, quality, scale)
+            import numpy as _np
+            arr = _np.asarray(ela_img, dtype=_np.uint8)
+            gray = arr.max(axis=2) if arr.ndim == 3 else arr
+            ela_error_mean = float(gray.mean())
+            ela_error_max = float(gray.max())
+            ela_score = max(0.0, min(1.0, 0.6 * min(1.0, ela_error_max / 255.0) + 0.4 * min(1.0, ela_error_mean / 60.0)))
             stem = _P(abspath.name).stem
             out_path = out_dir / f"{stem}_ela.png"
             ela_img.save(str(out_path), format='PNG')
-            ela_items.append({"uri": f"ela/{key}/{out_path.name}", "time_s": None, "index": None})
+            ela_items.append({"uri": f"ela/{key}/{out_path.name}", "time_s": None, "index": None, "ela_error_mean": ela_error_mean, "ela_error_max": ela_error_max, "ela_score": ela_score})
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"ELA generation failed: {e}")
 
-    return {"ela_frames": ela_items, "count": len(ela_items)}
+    try:
+        import json as _json, time as _time
+        meta = {"frames": ela_items, "created_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())}
+        meta_path.write_text(_json.dumps(meta), encoding="utf-8")
+    except Exception:
+        pass
+    high = []
+    if req.threshold is not None:
+        thr = float(req.threshold)
+        high = [it.get("index") for it in ela_items if (it.get("ela_score") or 0) >= thr and it.get("index") is not None]
+    return {"ela_frames": ela_items, "count": len(ela_items), "high_indices": high or None}
 
 # List existing ELA frames by stored_path/sha (no regeneration)
 @app.get("/api/ela/list-by-path")
@@ -1263,6 +1399,15 @@ def list_ela_frames_by_path(stored_path: str, sha256: str | None = None, user = 
     out_dir = DERIVED_DIR / "ela" / key
     if not out_dir.exists():
         return {"ela_frames": [], "count": 0}
+    meta_path = out_dir / "meta.json"
+    if meta_path.exists():
+        import json as _json
+        try:
+            data = _json.loads(meta_path.read_text(encoding="utf-8"))
+            frames = data.get("frames") or []
+            return {"ela_frames": frames, "count": len(frames)}
+        except Exception:
+            pass
     items: list[dict] = []
     pat = re.compile(r"^f_(\d+)\.png$", re.IGNORECASE)
     for p in sorted(out_dir.glob("*.png")):

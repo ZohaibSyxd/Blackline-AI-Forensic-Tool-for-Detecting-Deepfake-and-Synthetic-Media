@@ -141,6 +141,8 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
   const [elaFollowVideo, setElaFollowVideo] = useState<boolean>(true);
   const [elaSelectedIdx, setElaSelectedIdx] = useState<number | null>(null);
   const [elaFramesOverride, setElaFramesOverride] = useState<Array<{ uri: string; time_s?: number|null; index?: number }> | null>(null);
+  const [elaTopOnly, setElaTopOnly] = useState<boolean>(false);
+  const [elaTopK, setElaTopK] = useState<number>(10);
   // LBP viewer state
   const [lbpLoading, setLbpLoading] = useState<boolean>(false);
   const [lbpError, setLbpError] = useState<string | null>(null);
@@ -151,6 +153,8 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
   const [lbpFollowVideo, setLbpFollowVideo] = useState<boolean>(true);
   const [lbpSelectedIdx, setLbpSelectedIdx] = useState<number | null>(null);
   const [lbpFramesOverride, setLbpFramesOverride] = useState<Array<{ uri: string; time_s?: number|null; index?: number }> | null>(null);
+  const [lbpTopOnly, setLbpTopOnly] = useState<boolean>(false);
+  const [lbpTopK, setLbpTopK] = useState<number>(10);
   // Noise viewer state
   const [noiseLoading, setNoiseLoading] = useState<boolean>(false);
   const [noiseError, setNoiseError] = useState<string | null>(null);
@@ -161,6 +165,8 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
   const [noiseFollowVideo, setNoiseFollowVideo] = useState<boolean>(true);
   const [noiseSelectedIdx, setNoiseSelectedIdx] = useState<number | null>(null);
   const [noiseFramesOverride, setNoiseFramesOverride] = useState<Array<{ uri: string; fft_uri?: string; time_s?: number|null; index?: number; noise_score?: number }>|null>(null);
+  const [noiseTopOnly, setNoiseTopOnly] = useState<boolean>(false);
+  const [noiseTopK, setNoiseTopK] = useState<number>(10);
   // Add state for selected card
   const [selectedCardId, setSelectedCardId] = useState<string | undefined>(undefined);
 
@@ -851,12 +857,12 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                     if (tok) headers['Authorization'] = `Bearer ${tok}`;
                                     let res: Response;
                                     if (numericId !== null) {
-                                      res = await fetch(`${API_BASE}/api/noise/generate`, { method: 'POST', headers, body: JSON.stringify({ asset_id: numericId, frames: 12, method: 'both', threshold: 0.6 }) });
+                                      res = await fetch(`${API_BASE}/api/noise/generate`, { method: 'POST', headers, body: JSON.stringify({ asset_id: numericId, frames: 24, method: 'both', threshold: 0.6 }) });
                                     } else {
                                       const sp = (selected as any)?.raw?.asset?.stored_path;
                                       const sha = (selected as any)?.raw?.asset?.sha256;
                                       if (!sp) throw new Error('No asset reference for Noise');
-                                      res = await fetch(`${API_BASE}/api/noise/generate-by-path`, { method: 'POST', headers, body: JSON.stringify({ stored_path: sp, sha256: sha, frames: 12, method: 'both', threshold: 0.6 }) });
+                                      res = await fetch(`${API_BASE}/api/noise/generate-by-path`, { method: 'POST', headers, body: JSON.stringify({ stored_path: sp, sha256: sha, frames: 24, method: 'both', threshold: 0.6 }) });
                                     }
                                     if (!res.ok) throw new Error(await res.text());
                                     const data = await res.json();
@@ -969,14 +975,32 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                       <button className="btn ghost" onClick={handleReloadNoise} disabled={noiseLoading}>
                                         {noiseLoading && noiseAction==='reload' ? 'Reloading…' : 'Reload'}
                                       </button>
+                                      <label className="chk" title="Show only top-K frames by noise score">
+                                        <input type="checkbox" checked={noiseTopOnly} onChange={(e)=>{ setNoiseTopOnly(e.currentTarget.checked); setNoiseSelectedIdx(0); }} /> Top-K only
+                                      </label>
+                                      <label className="num" title="Number of top frames to display"><span className="muted">Top K</span>{' '}
+                                        <input type="number" min={1} max={200} value={noiseTopK} onChange={(e)=>{ const v = Math.max(1, Math.min(200, Number(e.currentTarget.value)||10)); setNoiseTopK(v); setNoiseSelectedIdx(0); }} className="w-16" />
+                                      </label>
                                       {noiseStatus ? <span className="status-pill success" role="status" aria-live="polite">{noiseStatus}</span> : null}
                                       {noiseError ? <span className="status-pill error" role="status" aria-live="assertive">{noiseError}</span> : null}
                                     </div>
-                                    {list.length ? (
+                                    {(() => {
+                                      if (!list.length) return <div className="overlay-content"><div className="muted">No noise frames available for this analysis.</div></div>;
+                                      let working = list.slice();
+                                      if (noiseTopOnly) {
+                                        working = working
+                                          .slice()
+                                          .sort((a,b)=>((b.noise_score||0)-(a.noise_score||0)))
+                                          .slice(0, Math.max(1, noiseTopK));
+                                      }
+                                      const topSet = new Set(working);
+                                      const sel = list[Math.max(0, Math.min(list.length-1, currentIdx))];
+                                      let idx = Math.max(0, working.indexOf(sel));
+                                      if (idx < 0) idx = Math.max(0, Math.min(working.length-1, currentIdx));
+                                      return (
                                       <div className={`ela-grid${noiseFlash ? ' ela-updated-flash' : ''}`}>
                                         {(() => {
-                                          const idx = Math.max(0, Math.min(list.length-1, currentIdx));
-                                          const f = list[idx];
+                                          const f = working[idx];
                                           const src = resolve(f.uri);
                                           const cap = (() => {
                                             const parts: string[] = [];
@@ -992,13 +1016,13 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                             } else {
                                               leftPct = Math.round((i / Math.max(1, list.length - 1)) * 100);
                                             }
-                                            return { i, leftPct, score: (typeof it.noise_score==='number'? it.noise_score : undefined) };
+                                            return { i, leftPct, score: (typeof it.noise_score==='number'? it.noise_score : undefined), isTop: topSet.has(it) };
                                           });
                                           const headLeft = (() => {
                                             if (mediaDuration && mediaDuration > 0) {
                                               return Math.max(0, Math.min(100, Math.round(((Math.max(0, videoTime)) / mediaDuration) * 100)));
                                             }
-                                            return Math.round(((idx) / Math.max(1, list.length - 1)) * 100);
+                                            return Math.round(((idx) / Math.max(1, working.length - 1)) * 100);
                                           })();
                                           return (
                                             <div className="ela-viewer-block">
@@ -1006,8 +1030,8 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                                 <div className="left"><span className="muted">Noise preview</span></div>
                                                 <div className="right">
                                                   <label className="chk"><input type="checkbox" checked={noiseFollowVideo} onChange={(e)=>setNoiseFollowVideo(e.currentTarget.checked)} /> Follow video</label>
-                                                  <button className="btn ghost" onClick={()=>{ if (idx>0) setAndMaybeSeek(idx-1); }} disabled={idx<=0}>Prev</button>
-                                                  <button className="btn ghost" onClick={()=>{ if (idx<list.length-1) setAndMaybeSeek(idx+1); }} disabled={idx>=list.length-1}>Next</button>
+                                                  <button className="btn ghost" onClick={()=>{ if (idx>0) setNoiseSelectedIdx(Math.max(0, list.indexOf(working[idx-1]))); }} disabled={idx<=0}>Prev</button>
+                                                  <button className="btn ghost" onClick={()=>{ if (idx<working.length-1) setNoiseSelectedIdx(Math.max(0, list.indexOf(working[idx+1]))); }} disabled={idx>=working.length-1}>Next</button>
                                                   {f.fft_uri ? <a className="btn ghost" href={resolve(f.fft_uri)} target="_blank" rel="noreferrer">FFT</a> : null}
                                                   <a className="btn ghost" href={src} target="_blank" rel="noreferrer">Open</a>
                                                 </div>
@@ -1019,8 +1043,8 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                               <div className="ela-timeline" role="region" aria-label="Noise timeline">
                                                 <div className="ft-base" aria-hidden="true" />
                                                 <div className={`ft-head ft-p${headLeft}`} aria-hidden="true" />
-                                                {items.map(({i, leftPct, score}) => (
-                                                  <button key={i} type="button" className={`ft-mark ft-p${leftPct} ${i===idx?'active':''} ${typeof score==='number' && score>=0.6 ? 'alert' : ''}`} onClick={()=> setAndMaybeSeek(i)} title={typeof score==='number'?`score ${(score*100).toFixed(0)}%`:undefined} />
+                                                {items.filter(it => it.isTop).map(({i, leftPct, score}) => (
+                                                  <button key={i} type="button" className={`ft-mark ft-p${leftPct} ${i===idx?'active':''} ${typeof score==='number' && score>=0.6 ? 'alert' : ''}`} onClick={()=> setNoiseSelectedIdx(i)} title={typeof score==='number'?`score ${(score*100).toFixed(0)}%`:undefined} />
                                                 ))}
                                                 <div className="ft-axis" aria-hidden="true">
                                                   <span>0s</span>
@@ -1030,7 +1054,7 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                             </div>
                                           );
                                         })()}
-                                        {list.map((f, i) => {
+                                        {working.map((f, i) => {
                                           const cap = ((): string => {
                                             const t = (typeof f.time_s === 'number' && Number.isFinite(f.time_s)) ? `${(f.time_s as number).toFixed(2)}s` : undefined;
                                             const idx2 = (typeof f.index === 'number' && Number.isFinite(f.index)) ? `#${f.index}` : undefined;
@@ -1039,7 +1063,7 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                           })();
                                           const src = resolve(f.uri);
                                           return (
-                                            <a key={i} className={`ela-item${typeof f.noise_score==='number' && f.noise_score>=0.6 ? ' alert' : ''}`} href={src} target="_blank" rel="noreferrer" title={cap} onClick={(e)=>{ e.preventDefault(); setAndMaybeSeek(i); }}>
+                                            <a key={i} className={`ela-item${typeof f.noise_score==='number' && f.noise_score>=0.6 ? ' alert' : ''}`} href={src} target="_blank" rel="noreferrer" title={cap} onClick={(e)=>{ e.preventDefault(); setNoiseSelectedIdx(Math.max(0, list.indexOf(working[i]))); }}>
                                               <figure>
                                                 <img src={src} loading="lazy" alt={cap || 'Noise frame'} />
                                                 <figcaption className="cap">{cap}</figcaption>
@@ -1048,9 +1072,8 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                           );
                                         })}
                                       </div>
-                                    ) : (
-                                      <div className="overlay-content"><div className="muted">No noise frames available for this analysis.</div></div>
-                                    )}
+                                      );
+                                    })()}
                                   </details>
                                 );
                               })()}
@@ -1073,7 +1096,7 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                     if (numericId !== null) {
                                       res = await fetch(`${API_BASE}/api/ela/generate`, {
                                         method: 'POST', headers,
-                                        body: JSON.stringify({ asset_id: numericId, frames: 12, quality: 90, scale: 12.0 }),
+                                        body: JSON.stringify({ asset_id: numericId, frames: 24, quality: 90, scale: 12.0 }),
                                       });
                                     } else {
                                       const sp = (selected as any)?.raw?.asset?.stored_path;
@@ -1081,7 +1104,7 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                       if (!sp) throw new Error('No asset reference for ELA');
                                       res = await fetch(`${API_BASE}/api/ela/generate-by-path`, {
                                         method: 'POST', headers,
-                                        body: JSON.stringify({ stored_path: sp, sha256: sha, frames: 12, quality: 90, scale: 12.0 }),
+                                        body: JSON.stringify({ stored_path: sp, sha256: sha, frames: 24, quality: 90, scale: 12.0 }),
                                       });
                                     }
                                     if (!res.ok) throw new Error(await res.text());
@@ -1196,19 +1219,47 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                       <button className="btn ghost" onClick={handleReloadELA} disabled={elaLoading}>
                                         {elaLoading && elaAction==='reload' ? 'Reloading…' : 'Reload'}
                                       </button>
+                                      <label className="chk" title="Show only Top-K frames">
+                                        <input type="checkbox" checked={elaTopOnly} onChange={(e)=>{ setElaTopOnly(e.currentTarget.checked); setElaSelectedIdx(0); }} /> Top-K only
+                                      </label>
+                                      <label className="num" title="Number of top frames to display"><span className="muted">Top K</span>{' '}
+                                        <input type="number" min={1} max={200} value={elaTopK} onChange={(e)=>{ const v = Math.max(1, Math.min(200, Number(e.currentTarget.value)||10)); setElaTopK(v); setElaSelectedIdx(0); }} className="w-16" />
+                                      </label>
                                       {elaStatus ? <span className="status-pill success" role="status" aria-live="polite">{elaStatus}</span> : null}
                                       {elaError ? <span className="status-pill error" role="status" aria-live="assertive">{elaError}</span> : null}
                                     </div>
-                                    {list.length ? (
+                                    {(() => {
+                                      if (!list.length) return <div className="overlay-content"><div className="muted">No ELA frames available for this analysis.</div></div>;
+                                      let working = list.slice();
+                                      if (elaTopOnly) {
+                                        const top = list
+                                          .slice()
+                                          .sort((a:any,b:any)=>((b.ela_score||b.elaErrorMax||0)-(a.ela_score||a.elaErrorMax||0)))
+                                          .slice(0, Math.max(1, elaTopK));
+                                        const topSetLocal = new Set(top);
+                                        working = list.filter(it => topSetLocal.has(it)); // preserve original order
+                                      }
+                                      const topSet = new Set(working);
+                                      const sel = list[Math.max(0, Math.min(list.length-1, currentIdx))];
+                                      let idx = Math.max(0, working.indexOf(sel));
+                                      if (idx < 0) idx = Math.max(0, Math.min(working.length-1, currentIdx));
+                                      const setFromWorking = (i: number) => {
+                                        const wf = working[i];
+                                        const j = Math.max(0, list.indexOf(wf));
+                                        setElaSelectedIdx(j);
+                                        const t = (wf && typeof wf.time_s === 'number' && Number.isFinite(wf.time_s as any)) ? (wf.time_s as number) : null;
+                                        if (t != null) jumpToTime(t, false);
+                                      };
+                                      return (
                                       <div className={`ela-grid${elaFlash ? ' ela-updated-flash' : ''}`}>
                                         {(() => {
-                                          const idx = Math.max(0, Math.min(list.length-1, currentIdx));
-                                          const f = list[idx];
+                                          const f = working[idx];
                                           const src = resolve(f.uri);
                                           const cap = (() => {
                                             const parts: string[] = [];
                                             if (typeof f.time_s === 'number' && Number.isFinite(f.time_s as any)) parts.push(`${(f.time_s as number).toFixed(2)}s`);
                                             if (typeof f.index === 'number' && Number.isFinite(f.index as any)) parts.push(`#${f.index}`);
+                                            if (typeof (f as any).ela_score === 'number') parts.push(`score ${((f as any).ela_score*100).toFixed(0)}%`);
                                             return parts.join(' • ') || `frame ${idx+1}`;
                                           })();
                                           const items = list.map((it, i) => {
@@ -1218,13 +1269,15 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                             } else {
                                               leftPct = Math.round((i / Math.max(1, list.length - 1)) * 100);
                                             }
-                                            return { i, leftPct };
+                                            const sc = (it as any)?.ela_score;
+                                            return { i, leftPct, isTop: topSet.has(it), score: (typeof sc==='number'? sc : undefined) };
                                           });
                                           const headLeft = (() => {
                                             if (mediaDuration && mediaDuration > 0) {
                                               return Math.max(0, Math.min(100, Math.round(((Math.max(0, videoTime)) / mediaDuration) * 100)));
                                             }
-                                            return Math.round(((idx) / Math.max(1, list.length - 1)) * 100);
+                                            const realIndex = Math.max(0, list.indexOf(working[idx]));
+                                            return Math.round(((realIndex) / Math.max(1, list.length - 1)) * 100);
                                           })();
                                           return (
                                             <div className="ela-viewer-block">
@@ -1232,8 +1285,8 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                                 <div className="left"><span className="muted">ELA preview</span></div>
                                                 <div className="right">
                                                   <label className="chk"><input type="checkbox" checked={elaFollowVideo} onChange={(e)=>setElaFollowVideo(e.currentTarget.checked)} /> Follow video</label>
-                                                  <button className="btn ghost" onClick={()=>{ if (idx>0) setAndMaybeSeek(idx-1); }} disabled={idx<=0}>Prev</button>
-                                                  <button className="btn ghost" onClick={()=>{ if (idx<list.length-1) setAndMaybeSeek(idx+1); }} disabled={idx>=list.length-1}>Next</button>
+                                                  <button className="btn ghost" onClick={()=>{ if (idx>0) setFromWorking(idx-1); }} disabled={idx<=0}>Prev</button>
+                                                  <button className="btn ghost" onClick={()=>{ if (idx<working.length-1) setFromWorking(idx+1); }} disabled={idx>=working.length-1}>Next</button>
                                                   <a className="btn ghost" href={src} target="_blank" rel="noreferrer">Open</a>
                                                 </div>
                                               </div>
@@ -1244,8 +1297,8 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                               <div className="ela-timeline" role="region" aria-label="ELA timeline">
                                                 <div className="ft-base" aria-hidden="true" />
                                                 <div className={`ft-head ft-p${headLeft}`} aria-hidden="true" />
-                                                {items.map(({i, leftPct}) => (
-                                                  <button key={i} type="button" className={`ft-mark ft-p${leftPct} ${i===idx?'active':''}`} onClick={()=> setAndMaybeSeek(i)} />
+                                                {(elaTopOnly ? items.filter(it => it.isTop) : items).map(({i, leftPct, score}) => (
+                                                  <button key={i} type="button" className={`ft-mark ft-p${leftPct} ${list.indexOf(working[idx])===i?'active':''} ${typeof score==='number' && score>=0.6 ? 'alert' : ''}`} onClick={()=> setElaSelectedIdx(i)} title={typeof score==='number'?`score ${(score*100).toFixed(0)}%`:undefined} />
                                                 ))}
                                                 <div className="ft-axis" aria-hidden="true">
                                                   <span>0s</span>
@@ -1255,15 +1308,17 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                             </div>
                                           );
                                         })()}
-                                        {list.map((f, i) => {
+                                        {working.map((f, i) => {
                                           const cap = ((): string => {
                                             const t = (typeof f.time_s === 'number' && Number.isFinite(f.time_s)) ? `${(f.time_s as number).toFixed(2)}s` : undefined;
                                             const idx2 = (typeof f.index === 'number' && Number.isFinite(f.index)) ? `#${f.index}` : undefined;
-                                            return t ? (idx2 ? `${t} • ${idx2}` : t) : (idx2 || `frame ${i+1}`);
+                                            const sc = (f as any)?.ela_score;
+                                            const sCap = (typeof sc==='number') ? `score ${(sc*100).toFixed(0)}%` : undefined;
+                                            return [t, idx2, sCap].filter(Boolean).join(' • ') || `frame ${i+1}`;
                                           })();
                                           const src = resolve(f.uri);
                                           return (
-                                            <a key={i} className="ela-item" href={src} target="_blank" rel="noreferrer" title={cap} onClick={(e)=>{ e.preventDefault(); setAndMaybeSeek(i); }}>
+                                            <a key={i} className={`ela-item${((f as any)?.ela_score||0)>=0.6 ? ' alert' : ''}`} href={src} target="_blank" rel="noreferrer" title={cap} onClick={(e)=>{ e.preventDefault(); setFromWorking(i); }}>
                                               <figure>
                                                 <img src={src} loading="lazy" alt={cap || 'ELA frame'} />
                                                 <figcaption className="cap">{cap}</figcaption>
@@ -1272,9 +1327,8 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                           );
                                         })}
                                       </div>
-                                    ) : (
-                                      <div className="overlay-content"><div className="muted">No ELA frames available for this analysis.</div></div>
-                                    )}
+                                      );
+                                    })()}
                                   </details>
                                 );
                               })()}
@@ -1297,7 +1351,7 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                     if (numericId !== null) {
                                       res = await fetch(`${API_BASE}/api/lbp/generate`, {
                                         method: 'POST', headers,
-                                        body: JSON.stringify({ asset_id: numericId, frames: 12, radius: 1 }),
+                                        body: JSON.stringify({ asset_id: numericId, frames: 24, radius: 1 }),
                                       });
                                     } else {
                                       const sp = (selected as any)?.raw?.asset?.stored_path;
@@ -1305,7 +1359,7 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                       if (!sp) throw new Error('No asset reference for LBP');
                                       res = await fetch(`${API_BASE}/api/lbp/generate-by-path`, {
                                         method: 'POST', headers,
-                                        body: JSON.stringify({ stored_path: sp, sha256: sha, frames: 12, radius: 1 }),
+                                        body: JSON.stringify({ stored_path: sp, sha256: sha, frames: 24, radius: 1 }),
                                       });
                                     }
                                     if (!res.ok) throw new Error(await res.text());
@@ -1420,19 +1474,47 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                       <button className="btn ghost" onClick={handleReloadLBP} disabled={lbpLoading}>
                                         {lbpLoading && lbpAction==='reload' ? 'Reloading…' : 'Reload'}
                                       </button>
+                                      <label className="chk" title="Show only Top-K frames">
+                                        <input type="checkbox" checked={lbpTopOnly} onChange={(e)=>{ setLbpTopOnly(e.currentTarget.checked); setLbpSelectedIdx(0); }} /> Top-K only
+                                      </label>
+                                      <label className="num" title="Number of top frames to display"><span className="muted">Top K</span>{' '}
+                                        <input type="number" min={1} max={200} value={lbpTopK} onChange={(e)=>{ const v = Math.max(1, Math.min(200, Number(e.currentTarget.value)||10)); setLbpTopK(v); setLbpSelectedIdx(0); }} className="w-16" />
+                                      </label>
                                       {lbpStatus ? <span className="status-pill success" role="status" aria-live="polite">{lbpStatus}</span> : null}
                                       {lbpError ? <span className="status-pill error" role="status" aria-live="assertive">{lbpError}</span> : null}
                                     </div>
-                                    {list.length ? (
+                                    {(() => {
+                                      if (!list.length) return <div className="overlay-content"><div className="muted">No LBP frames available for this analysis.</div></div>;
+                                      let working = list.slice();
+                                      if (lbpTopOnly) {
+                                        const top = list
+                                          .slice()
+                                          .sort((a:any,b:any)=>((b.lbp_score||0)-(a.lbp_score||0)))
+                                          .slice(0, Math.max(1, lbpTopK));
+                                        const topSetLocal = new Set(top);
+                                        working = list.filter(it => topSetLocal.has(it)); // preserve original order
+                                      }
+                                      const topSet = new Set(working);
+                                      const sel = list[Math.max(0, Math.min(list.length-1, currentIdx))];
+                                      let idx = Math.max(0, working.indexOf(sel));
+                                      if (idx < 0) idx = Math.max(0, Math.min(working.length-1, currentIdx));
+                                      const setFromWorking = (i: number) => {
+                                        const wf = working[i];
+                                        const j = Math.max(0, list.indexOf(wf));
+                                        setLbpSelectedIdx(j);
+                                        const t = (wf && typeof wf.time_s === 'number' && Number.isFinite(wf.time_s as any)) ? (wf.time_s as number) : null;
+                                        if (t != null) jumpToTime(t, false);
+                                      };
+                                      return (
                                       <div className={`ela-grid${lbpFlash ? ' ela-updated-flash' : ''}`}>
                                         {(() => {
-                                          const idx = Math.max(0, Math.min(list.length-1, currentIdx));
-                                          const f = list[idx];
+                                          const f = working[idx];
                                           const src = resolve(f.uri);
                                           const cap = (() => {
                                             const parts: string[] = [];
                                             if (typeof f.time_s === 'number' && Number.isFinite(f.time_s as any)) parts.push(`${(f.time_s as number).toFixed(2)}s`);
                                             if (typeof f.index === 'number' && Number.isFinite(f.index as any)) parts.push(`#${f.index}`);
+                                            if (typeof (f as any).lbp_score === 'number') parts.push(`score ${((f as any).lbp_score*100).toFixed(0)}%`);
                                             return parts.join(' • ') || `frame ${idx+1}`;
                                           })();
                                           const items = list.map((it, i) => {
@@ -1442,13 +1524,15 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                             } else {
                                               leftPct = Math.round((i / Math.max(1, list.length - 1)) * 100);
                                             }
-                                            return { i, leftPct };
+                                            const sc = (it as any)?.lbp_score;
+                                            return { i, leftPct, isTop: topSet.has(it), score: (typeof sc==='number'? sc : undefined) };
                                           });
                                           const headLeft = (() => {
                                             if (mediaDuration && mediaDuration > 0) {
                                               return Math.max(0, Math.min(100, Math.round(((Math.max(0, videoTime)) / mediaDuration) * 100)));
                                             }
-                                            return Math.round(((idx) / Math.max(1, list.length - 1)) * 100);
+                                            const realIndex = Math.max(0, list.indexOf(working[idx]));
+                                            return Math.round(((realIndex) / Math.max(1, list.length - 1)) * 100);
                                           })();
                                           return (
                                             <div className="ela-viewer-block">
@@ -1456,8 +1540,8 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                                 <div className="left"><span className="muted">LBP preview</span></div>
                                                 <div className="right">
                                                   <label className="chk"><input type="checkbox" checked={lbpFollowVideo} onChange={(e)=>setLbpFollowVideo(e.currentTarget.checked)} /> Follow video</label>
-                                                  <button className="btn ghost" onClick={()=>{ if (idx>0) setAndMaybeSeek(idx-1); }} disabled={idx<=0}>Prev</button>
-                                                  <button className="btn ghost" onClick={()=>{ if (idx<list.length-1) setAndMaybeSeek(idx+1); }} disabled={idx>=list.length-1}>Next</button>
+                                                  <button className="btn ghost" onClick={()=>{ if (idx>0) setFromWorking(idx-1); }} disabled={idx<=0}>Prev</button>
+                                                  <button className="btn ghost" onClick={()=>{ if (idx<working.length-1) setFromWorking(idx+1); }} disabled={idx>=working.length-1}>Next</button>
                                                   <a className="btn ghost" href={src} target="_blank" rel="noreferrer">Open</a>
                                                 </div>
                                               </div>
@@ -1468,8 +1552,8 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                               <div className="ela-timeline" role="region" aria-label="LBP timeline">
                                                 <div className="ft-base" aria-hidden="true" />
                                                 <div className={`ft-head ft-p${headLeft}`} aria-hidden="true" />
-                                                {items.map(({i, leftPct}) => (
-                                                  <button key={i} type="button" className={`ft-mark ft-p${leftPct} ${i===idx?'active':''}`} onClick={()=> setAndMaybeSeek(i)} />
+                                                {(lbpTopOnly ? items.filter(it => it.isTop) : items).map(({i, leftPct, score}) => (
+                                                  <button key={i} type="button" className={`ft-mark ft-p${leftPct} ${list.indexOf(working[idx])===i?'active':''} ${typeof score==='number' && score>=0.6 ? 'alert' : ''}`} onClick={()=> setLbpSelectedIdx(i)} title={typeof score==='number'?`score ${(score*100).toFixed(0)}%`:undefined} />
                                                 ))}
                                                 <div className="ft-axis" aria-hidden="true">
                                                   <span>0s</span>
@@ -1479,15 +1563,17 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                             </div>
                                           );
                                         })()}
-                                        {list.map((f, i) => {
+                                        {working.map((f, i) => {
                                           const cap = ((): string => {
                                             const t = (typeof f.time_s === 'number' && Number.isFinite(f.time_s)) ? `${(f.time_s as number).toFixed(2)}s` : undefined;
                                             const idx2 = (typeof f.index === 'number' && Number.isFinite(f.index)) ? `#${f.index}` : undefined;
-                                            return t ? (idx2 ? `${t} • ${idx2}` : t) : (idx2 || `frame ${i+1}`);
+                                            const sc = (f as any)?.lbp_score;
+                                            const sCap = (typeof sc==='number') ? `score ${(sc*100).toFixed(0)}%` : undefined;
+                                            return [t, idx2, sCap].filter(Boolean).join(' • ') || `frame ${i+1}`;
                                           })();
                                           const src = resolve(f.uri);
                                           return (
-                                            <a key={i} className="ela-item" href={src} target="_blank" rel="noreferrer" title={cap} onClick={(e)=>{ e.preventDefault(); setAndMaybeSeek(i); }}>
+                                            <a key={i} className={`ela-item${((f as any)?.lbp_score||0)>=0.6 ? ' alert' : ''}`} href={src} target="_blank" rel="noreferrer" title={cap} onClick={(e)=>{ e.preventDefault(); setFromWorking(i); }}>
                                               <figure>
                                                 <img src={src} loading="lazy" alt={cap || 'LBP frame'} />
                                                 <figcaption className="cap">{cap}</figcaption>
@@ -1496,9 +1582,8 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                           );
                                         })}
                                       </div>
-                                    ) : (
-                                      <div className="overlay-content"><div className="muted">No LBP frames available for this analysis.</div></div>
-                                    )}
+                                      );
+                                    })()}
                                   </details>
                                 );
                               })()}
