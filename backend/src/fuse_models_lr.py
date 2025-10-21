@@ -90,6 +90,7 @@ def main():
     ap.add_argument("--use-split", action="store_true")
     ap.add_argument("--val-as-test", action="store_true")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--save-model", default="", help="Optional path to save LR weights (JSON with coef/intercept)")
     args=ap.parse_args()
 
     x=agg_map(read_jsonl_scores(Path(args.xception)), args.agg_frame)
@@ -139,20 +140,59 @@ def main():
     probs=clf.predict_proba(X)[:,1]  # P(FAKE)
     out=Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
     with audit_step("fuse_models_lr", params=vars(args), inputs={"xception": args.xception, "timesformer": args.timesformer, "manifest": args.manifest}) as outputs:
-      with out.open("w",encoding="utf-8") as w:
-        for s,(sx,st),pf in zip(shas,X,probs):
-            w.write(json.dumps({
-                "asset_id": (aid.get(s) or None),
-                "sha256": s,
-                "xception_agg_score": None if np.isnan(sx) else float(sx),
-                "timesformer_agg_score": None if np.isnan(st) else float(st),
-                "fused_score": float(pf),                # P(FAKE)
-                "predicted_label": "FAKE" if pf>=0.5 else "REAL",
-                "decision_threshold": 0.5,
-                "model_name": "stack: logistic(xception,timesformer)",
-                "model_version": "v1",
-            })+"\n")
-      outputs["fusion_predictions_lr"] = {"path": args.out}
+        with out.open("w", encoding="utf-8") as w:
+            for s, (sx, st), pf in zip(shas, X, probs):
+                w.write(json.dumps({
+                    "asset_id": (aid.get(s) or None),
+                    "sha256": s,
+                    "xception_agg_score": None if np.isnan(sx) else float(sx),
+                    "timesformer_agg_score": None if np.isnan(st) else float(st),
+                    "fused_score": float(pf),                # P(FAKE)
+                    "predicted_label": "FAKE" if pf >= 0.5 else "REAL",
+                    "decision_threshold": 0.5,
+                    "model_name": "stack: logistic(xception,timesformer)",
+                    "model_version": "v1",
+                }) + "\n")
+            outputs["fusion_predictions_lr"] = {"path": args.out}
+            # Optionally save LR weights for live API use
+            try:
+                if args.save_model:
+                    from sklearn.calibration import CalibratedClassifierCV
+                    import numpy as _np
+                    coefs = []
+                    intercepts = []
+                    if isinstance(clf, CalibratedClassifierCV):
+                        # Try to collect base estimators from calibrated_classifiers_
+                        for cc in getattr(clf, "calibrated_classifiers_", []) or []:
+                            base = None
+                            for attr in ("base_estimator_", "estimator_", "base_estimator", "estimator"):
+                                base = getattr(cc, attr, None)
+                                if base is not None:
+                                    break
+                            c = getattr(base, "coef_", None)
+                            b = getattr(base, "intercept_", None)
+                            if c is not None and b is not None:
+                                coefs.append(c[0])
+                                intercepts.append(b[0])
+                    else:
+                        c = getattr(clf, "coef_", None)
+                        b = getattr(clf, "intercept_", None)
+                        if c is not None and b is not None:
+                            coefs.append(c[0])
+                            intercepts.append(b[0])
+                    if coefs and intercepts:
+                        cavg = _np.mean(_np.stack(coefs, axis=0), axis=0)
+                        bavg = float(_np.mean(_np.array(intercepts)))
+                        if cavg.shape[0] >= 2:
+                            sm_path = Path(args.save_model)
+                            sm_path.parent.mkdir(parents=True, exist_ok=True)
+                            obj = {"coef": [float(cavg[0]), float(cavg[1])], "intercept": bavg}
+                            sm_path.write_text(json.dumps(obj, indent=2), encoding="utf-8")
+                            outputs["fusion_lr_model"] = {"path": str(sm_path)}
+                    else:
+                        print("[warn] Unable to extract LR coefficients; not saving model.")
+            except Exception as e:
+                print(f"[warn] Failed to save LR weights: {e}")
     print(f"Wrote → {out}")
 
 if __name__=="__main__":

@@ -141,6 +141,29 @@ class PagesPayload(BaseModel):
 def health():
     return {"status": "ok"}
 
+@app.get("/api/dl/info")
+def dl_info():
+    """Report deep learning fusion availability and which mode would be used.
+    mode: "fusion-lr" if backend/models/fusion_lr.json exists, else "fusion-blend".
+    """
+    from .models.fusion_live import _resolve_models_root
+    mroot = _resolve_models_root()
+    x_ck = (mroot / "xception_best.pth").exists()
+    ts_ck = (mroot / "timesformer_best.pt").exists()
+    ts_cfg = (mroot / "timesformer_best.config.json").exists()
+    lr_w = (mroot / "fusion_lr.json").exists()
+    return {
+        "models_root": str(mroot),
+        "weights": {
+            "xception": x_ck,
+            "timesformer": ts_ck,
+            "timesformer_config": ts_cfg,
+            "fusion_lr": lr_w,
+        },
+        "mode": "fusion-lr" if lr_w else "fusion-blend",
+        "method_label": "fusion-lr(xception,timesformer)" if lr_w else "fusion-blend(avg(xception,timesformer))",
+    }
+
 @app.get("/")
 def root():
     return {"service": "blackline-api", "status": "ok"}
@@ -186,6 +209,7 @@ def buildinfo():
     x_ck = (mroot / "xception_best.pth").exists()
     ts_ck = (mroot / "timesformer_best.pt").exists()
     ts_cfg = (mroot / "timesformer_best.config.json").exists()
+    lr_w  = (mroot / "fusion_lr.json").exists()
     return {
         "api_version": app.version,
         "storage_backend": os.getenv("STORAGE_BACKEND", "local"),
@@ -194,7 +218,7 @@ def buildinfo():
         "ffprobe_version": ffprobe_ver,
         "ffmpeg_version": ffmpeg_ver,
         "libs": {"torch": torch_ok, "decord": decord_ok, "opencv": cv_ok},
-        "models": {"root": str(mroot), "xception": x_ck, "timesformer": ts_ck, "ts_config": ts_cfg},
+        "models": {"root": str(mroot), "xception": x_ck, "timesformer": ts_ck, "ts_config": ts_cfg, "fusion_lr_weights": lr_w},
         # Marker that this build downloads remote assets before probing
         "features": {"download_first": True, "path_progress_message": True},
         # Helpful to identify Cloud Run/Render
@@ -382,6 +406,36 @@ def generate_ela_frames(req: ELAGenerateReq, user = Depends(get_current_user), d
 
     return { "ela_frames": ela_items, "count": len(ela_items) }
 
+# List existing ELA frames for an asset (no regeneration)
+@app.get("/api/ela/list")
+def list_ela_frames(asset_id: int, user = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Return any ELA frames already generated for the given asset.
+    Scans derived/ela/<key> and returns URIs relative to /static.
+    """
+    import re
+    asset = db.query(models_db.Asset).filter(models_db.Asset.id == asset_id, models_db.Asset.user_id == user.id).one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    key = (asset.sha256 or f"asset_{asset.id}")
+    out_dir = DERIVED_DIR / "ela" / key
+    if not out_dir.exists():
+        return {"ela_frames": [], "count": 0}
+    items: list[dict] = []
+    pat = re.compile(r"^f_(\d+)\.png$", re.IGNORECASE)
+    for p in sorted(out_dir.glob("*.png")):
+        name = p.name
+        m = pat.match(name)
+        idx = int(m.group(1)) if m else None
+        items.append({
+            "uri": f"ela/{key}/{name}",
+            "time_s": None,
+            "index": idx,
+        })
+    # If we have frame indices, sort by them
+    items.sort(key=lambda d: (d.get("index") is None, d.get("index", 0), d.get("uri")))
+    return {"ela_frames": items, "count": len(items)}
+
 # Fallback: allow generating ELA by stored_path for ad-hoc analyses (no DB asset)
 class ELAGenerateByPathReq(BaseModel):
     stored_path: str
@@ -487,6 +541,37 @@ def generate_ela_frames_by_path(req: ELAGenerateByPathReq, user = Depends(get_cu
         raise HTTPException(status_code=500, detail=f"ELA generation failed: {e}")
 
     return {"ela_frames": ela_items, "count": len(ela_items)}
+
+# List existing ELA frames by stored_path/sha (no regeneration)
+@app.get("/api/ela/list-by-path")
+def list_ela_frames_by_path(stored_path: str, sha256: str | None = None, user = Depends(get_current_user)):
+    """
+    Return ELA frames that already exist for the given stored_path/sha.
+    Uses derived/ela/<key> directory where key is sha256 or first segment of stored_path.
+    """
+    import re
+    from pathlib import Path as _P
+    sp = (stored_path or "").lstrip("/")
+    if not sp:
+        raise HTTPException(status_code=400, detail="stored_path required")
+    parts = _P(sp).parts
+    key = (sha256 or (parts[0] if parts else "file"))
+    out_dir = DERIVED_DIR / "ela" / key
+    if not out_dir.exists():
+        return {"ela_frames": [], "count": 0}
+    items: list[dict] = []
+    pat = re.compile(r"^f_(\d+)\.png$", re.IGNORECASE)
+    for p in sorted(out_dir.glob("*.png")):
+        name = p.name
+        m = pat.match(name)
+        idx = int(m.group(1)) if m else None
+        items.append({
+            "uri": f"ela/{key}/{name}",
+            "time_s": None,
+            "index": idx,
+        })
+    items.sort(key=lambda d: (d.get("index") is None, d.get("index", 0), d.get("uri")))
+    return {"ela_frames": items, "count": len(items)}
 
 # ------------------------- Auth Endpoints (Prototype) -----------------------
 @app.post("/api/auth/login")
@@ -638,16 +723,35 @@ async def analyze(file: UploadFile = File(...), model: str = Form("stub"), job_i
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"LBP model unavailable: {e}")
         df_pred = predict_lbp_single(video_abs)
-    elif model in ("dl", "deep", "deep_learning", "full", "fusion"):
-        # Online fusion (Xception + TimeSformer) for a single asset
+    elif model in ("fusion_blend", "dl_blend"):
         try:
-            from .models.fusion_live import predict_fusion_single  # lazy import to avoid startup torch dependency
-            base = predict_fusion_single(video_abs)
-            df_pred = base
+            from .models.fusion_live import predict_fusion_single
+            df_pred = predict_fusion_single(video_abs)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Deep learning (blend) unavailable: {e}")
+    elif model in ("fusion_lr", "dl_lr"):
+        try:
+            from .models.fusion_lr_live import predict_fusion_lr_single
+            df_pred = predict_fusion_lr_single(video_abs)
+        except RuntimeError as e:
+            # LR weights missing or invalid
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Deep learning (LR) unavailable: {e}")
+    elif model in ("dl", "deep", "deep_learning", "full", "fusion"):
+        # Auto: prefer logistic regression fusion if weights exist; else blend
+        try:
+            from pathlib import Path as _P
+            from .models.fusion_lr_live import predict_fusion_lr_single
+            from .models.fusion_live import predict_fusion_single
+            _root = _P(__file__).resolve().parents[1] / "models"
+            lr_path = _root / "fusion_lr.json"
+            df_pred = predict_fusion_lr_single(video_abs) if lr_path.exists() else predict_fusion_single(video_abs)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Deep learning model unavailable: {e}")
     else:
-        df_pred = predict_deepfake(video_abs, sha256=ingest_rec["sha256"])  # stub fallback
+        # Explicitly request stub path so the method is reported as 'stub-hash'
+        df_pred = predict_deepfake(video_abs, sha256=ingest_rec["sha256"], method="stub")  # stub fallback
 
     # 5) Summary
     sum_probe = summarize_ffprobe((probe_rec or {}).get("probe")) if probe_rec else {}
@@ -812,15 +916,33 @@ def analyze_asset(req: AnalyzeAssetRequest, user = Depends(get_current_user)):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"LBP model unavailable: {e}")
         df_pred = predict_lbp_single(video_abs)
-    elif model in ("dl", "deep", "deep_learning", "full", "fusion"):
+    elif model in ("fusion_blend", "dl_blend"):
         try:
             from .models.fusion_live import predict_fusion_single
-            base = predict_fusion_single(video_abs)
-            df_pred = base
+            df_pred = predict_fusion_single(video_abs)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Deep learning (blend) unavailable: {e}")
+    elif model in ("fusion_lr", "dl_lr"):
+        try:
+            from .models.fusion_lr_live import predict_fusion_lr_single
+            df_pred = predict_fusion_lr_single(video_abs)
+        except RuntimeError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Deep learning (LR) unavailable: {e}")
+    elif model in ("dl", "deep", "deep_learning", "full", "fusion"):
+        try:
+            from pathlib import Path as _P
+            from .models.fusion_lr_live import predict_fusion_lr_single
+            from .models.fusion_live import predict_fusion_single
+            _root = _P(__file__).resolve().parents[1] / "models"
+            lr_path = _root / "fusion_lr.json"
+            df_pred = predict_fusion_lr_single(video_abs) if lr_path.exists() else predict_fusion_single(video_abs)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Deep learning model unavailable: {e}")
     else:
-        df_pred = predict_deepfake(video_abs, sha256=(a.sha256 or ""))
+        # Explicitly request stub path so the method is reported as 'stub-hash'
+        df_pred = predict_deepfake(video_abs, sha256=(a.sha256 or ""), method="stub")
     # cleanup temp
     try:
         if temp_path and Path(temp_path).exists():

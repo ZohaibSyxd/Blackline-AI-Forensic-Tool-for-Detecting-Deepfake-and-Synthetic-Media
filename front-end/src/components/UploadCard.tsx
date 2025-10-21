@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { persistFile, loadFile, removeFile as removePersistedFile } from '../utils/uploadPersistence';
 import { upsertAnalysis, deleteAnalyses } from '../state/analysisStore';
 import "./UploadCard.css";
+import "./UploadCard.override.css";
 import { analyzeAsset as analyzeAssetById, getUploadUrl, confirmUpload } from '../utils/assetsApi';
 import { getAuthState } from '../state/authStore';
 
@@ -56,6 +57,7 @@ interface UploadItem {
   stageMsg?: string | null; // backend-reported human message
   result?: AnalysisSummary | null;
   error?: string | null;
+  usedModel?: string | null; // which model this item was analyzed with
 }
 
 interface UploadCardProps { pageKey?: string }
@@ -69,7 +71,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   const [dragOver, setDragOver] = useState(false);
   const [items, setItems] = useState<UploadItem[]>([]);
   const [globalError, setGlobalError] = useState<string | null>(null);
-  const [model, setModel] = useState<string>('stub');
+  const [model, setModel] = useState<string>('fusion_blend');
   const inputRef = useRef<HTMLInputElement | null>(null);
   const replaceRef = useRef<HTMLInputElement | null>(null);
   const replaceTargetId = useRef<string | null>(null);
@@ -84,6 +86,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   const [doneToast, setDoneToast] = useState<{ id: string; name: string } | null>(null);
   // track ongoing thumbnail generations to avoid duplicate work
   const thumbGenRef = useRef<Record<string, boolean>>({});
+  const [lrAvailable, setLrAvailable] = useState<boolean>(false);
 
   // Generate a thumbnail for an image File and return a persistent data URL
   async function generateImageThumbnail(file: File, targetH = 96): Promise<string> {
@@ -199,8 +202,24 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
     try {
       const saved = localStorage.getItem('bl_lastModel');
       if (saved) setModel(saved);
-    } catch {}
+      else setModel('fusion_blend');
+    } catch { setModel('fusion_blend'); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Fetch DL info (for LR availability)
+  useEffect(() => {
+    let ok = true;
+    (async () => {
+      try {
+        const resp = await fetch(`${API_BASE}/api/dl/info`, { cache: 'no-cache' });
+        if (!resp.ok) return;
+        const j = await resp.json();
+        const avail = !!(j && j.weights && j.weights.fusion_lr);
+        if (ok) setLrAvailable(avail);
+      } catch {}
+    })();
+    return () => { ok = false; };
   }, []);
   useEffect(() => {
     try { localStorage.setItem('bl_lastModel', model); } catch {}
@@ -297,7 +316,16 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
     return () => { window.removeEventListener('bl:uploads-removed', onRemoved as EventListener); };
   }, [pageKey]);
 
-  type SlimItem = Pick<UploadItem, 'id' | 'status' | 'progress' | 'preview' | 'result' | 'error' | 'stage' | 'stageMsg' | 'analyzeStartAt' | 'jobId'> & { fileName: string; fileType: string };
+  type SlimItem = Pick<UploadItem, 'id' | 'status' | 'progress' | 'preview' | 'result' | 'error' | 'stage' | 'stageMsg' | 'analyzeStartAt' | 'jobId' | 'usedModel'> & { fileName: string; fileType: string };
+
+  function inferModelFromMethod(m?: string | null): string | null {
+    if (!m || typeof m !== 'string') return null;
+    const s = m.toLowerCase();
+    if (s.includes('fusion-lr')) return 'fusion_lr';
+    if (s.includes('fusion-blend')) return 'fusion_blend';
+    if (s.includes('stub') || s.includes('hash')) return 'stub';
+    return null;
+  }
 
   const storageKey = pageKey ? `${STORAGE_PREFIX}${pageKey}_${STORAGE_VERSION}` : `${STORAGE_PREFIX}__global_${STORAGE_VERSION}`;
 
@@ -315,6 +343,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
             // Drop any non-persistent blob: previews stored from older sessions
             const previewRaw = si.preview || null;
             const preview = (previewRaw && typeof previewRaw === 'string' && previewRaw.startsWith('blob:')) ? null : previewRaw;
+            const inferredModel = inferModelFromMethod((si as any)?.result?.summary?.deepfake_method);
             return {
               id: si.id,
               file: file || undefined,
@@ -329,6 +358,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
               analyzeStartAt: (si as any).analyzeStartAt || undefined,
               jobId: (si as any).jobId || undefined,
               error: si.error || null,
+              usedModel: (si as any).usedModel || inferredModel || null,
             } as UploadItem;
         }));
         // Map current page's files to local ref for quick access
@@ -354,6 +384,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         jobId: it.jobId || undefined,
         result: it.result || null,
         error: it.error || null,
+        usedModel: it.usedModel || null,
       }));
       localStorage.setItem(storageKey, JSON.stringify(slim));
     } catch {}
@@ -508,7 +539,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
 
   async function analyzeItem(id: string) {
     // Reset timer and state for a fresh run
-    setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'uploading', progress: 0, stage: 'uploading', stageMsg: 'Uploading file', error: null, result: null, analyzeStartAt: undefined } : it));
+  setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'uploading', progress: 0, stage: 'uploading', stageMsg: 'Uploading file', error: null, result: null, analyzeStartAt: undefined, usedModel: model } : it));
     const item = items.find(it => it.id === id);
     if (!item) return;
     const file = filesRef.current[id] || item.file;
@@ -521,7 +552,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
       const token = getAuthState().token;
       if (token) {
         // Use S3 presigned upload + confirm + analyze-by-asset
-        setItems(prev => prev.map(it => it.id === id ? { ...it, jobId } : it));
+  setItems(prev => prev.map(it => it.id === id ? { ...it, jobId, usedModel: model } : it));
         // Start polling progress emitted by backend analyze/asset
         startProgressPolling(id, jobId);
         // 1) get upload url
@@ -534,9 +565,9 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         // 3) confirm
         const asset = await confirmUpload(key, file.name, file.type || undefined);
         // 4) analyze by asset id (includes job id for progress)
-        setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', progress: Math.max(it.progress, 100), stage: 'processing', stageMsg: 'Processing on server', analyzeStartAt: it.analyzeStartAt || Date.now() } : it));
+  setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', progress: Math.max(it.progress, 100), stage: 'processing', stageMsg: 'Processing on server', analyzeStartAt: it.analyzeStartAt || Date.now(), usedModel: it.usedModel || model } : it));
         const data = await analyzeAssetById(asset.id, model, jobId);
-        setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'done', progress: 100, stage: 'done', stageMsg: 'Completed', result: data, error: null, xhr: undefined, analyzeStartAt: undefined } : it));
+  setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'done', progress: 100, stage: 'done', stageMsg: 'Completed', result: data, error: null, xhr: undefined, analyzeStartAt: undefined, usedModel: it.usedModel || model } : it));
         try { pollStopsRef.current[id]?.(); delete pollStopsRef.current[id]; } catch {}
         try { setDoneToast({ id, name: file.name }); setTimeout(() => setDoneToast(null), 6000); } catch {}
         // Persist summary for reports page
@@ -548,7 +579,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         // Fallback to legacy in-app upload and analyze (local dev, unauthenticated)
         const form = new FormData();
         form.append('file', file);
-        form.append('model', model);
+  form.append('model', model);
         form.append('job_id', jobId);
         const xhr = new XMLHttpRequest();
         xhr.timeout = 10 * 60 * 1000;
@@ -565,7 +596,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
             }
           };
           xhr.upload.onload = () => {
-            setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', progress: 100, stage: 'processing', stageMsg: 'Processing on server', analyzeStartAt: it.analyzeStartAt || Date.now() } : it));
+            setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', progress: 100, stage: 'processing', stageMsg: 'Processing on server', analyzeStartAt: it.analyzeStartAt || Date.now(), usedModel: it.usedModel || model } : it));
           };
           xhr.onloadstart = () => setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'uploading' } : it));
           xhr.onreadystatechange = () => { if (xhr.readyState === 2 || xhr.readyState === 3) setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'analyzing', stage: 'processing', stageMsg: 'Processing on server', analyzeStartAt: it.analyzeStartAt || Date.now() } : it)); };
@@ -576,7 +607,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
             try {
               if (xhr.status >= 200 && xhr.status < 300) {
                 const data = JSON.parse(xhr.responseText) as AnalysisSummary;
-                setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'done', progress: 100, stage: 'done', stageMsg: 'Completed', result: data, error: null, xhr: undefined, analyzeStartAt: undefined } : it));
+                setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'done', progress: 100, stage: 'done', stageMsg: 'Completed', result: data, error: null, xhr: undefined, analyzeStartAt: undefined, usedModel: it.usedModel || model } : it));
                 try { pollStopsRef.current[id]?.(); delete pollStopsRef.current[id]; } catch {}
                 try { setDoneToast({ id, name: file.name }); setTimeout(() => setDoneToast(null), 6000); } catch {}
                 try {
@@ -660,18 +691,24 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
             <h3>Upload Media for Analysis</h3>
           </div>
           <div className="upload-header-actions">
-            <select
-              aria-label="Select analysis model"
-              className="btn"
-              value={model}
-              onChange={(e)=>setModel(e.target.value)}
-              title="Choose which technique to run"
-            >
-              <option value="stub">Hash Stub (baseline)</option>
-              <option value="copy_move">Copy-Move (ORB)</option>
-              <option value="lbp">LBP (trained)</option>
-              <option value="dl">Deep Learning (full)</option>
-            </select>
+            <div className="btn-toggle" role="group" aria-label="Select analysis model">
+              <button
+                className={`btn ${model==='stub' ? 'selected' : ''}`}
+                onClick={()=>setModel('stub')}
+                title="Hash baseline"
+              >Hash Stub</button>
+              <button
+                className={`btn ${model==='fusion_blend' ? 'selected' : ''}`}
+                onClick={()=>setModel('fusion_blend')}
+                title="Deep Learning (blend)"
+              >Fusion-Blend</button>
+              <button
+                className={`btn ${model==='fusion_lr' ? 'selected' : ''}`}
+                onClick={()=>setModel('fusion_lr')}
+                title={lrAvailable ? 'Deep Learning (logistic regression)' : 'LR weights not found'}
+                disabled={!lrAvailable}
+              >Fusion-LR</button>
+            </div>
             <button className="btn" onClick={handleBrowse}>Upload More</button>
             <button
               className="btn ghost"
@@ -774,8 +811,14 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
                       </button>
                     )}
                     {(it.status==='analyzing' || it.status==='done') && (
-                      <span className="status-badge push-right" aria-label="Upload complete">
+                      <span className="status-badge push-right" aria-label="Upload complete and model used">
                         <span className="dot" /> Upload Complete
+                        { it.usedModel ? (
+                          (() => {
+                            const tag = it.usedModel === 'stub' ? 'hash-stub' : (it.usedModel === 'fusion_lr' ? 'fusion-lr' : 'fusion-blend');
+                            return <span className={`model-badge ${tag} with-gap`}>{tag}</span>;
+                          })()
+                        ) : null}
                       </span>
                     )}
                   </div>

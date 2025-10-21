@@ -133,9 +133,14 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
   const [detailVideoSrc, setDetailVideoSrc] = useState<string | undefined>(undefined);
   const [elaLoading, setElaLoading] = useState<boolean>(false);
   const [elaError, setElaError] = useState<string | null>(null);
+  const [elaAction, setElaAction] = useState<"generate" | "reload" | null>(null);
+  const [elaStatus, setElaStatus] = useState<string | null>(null);
+  const [elaFlash, setElaFlash] = useState<boolean>(false);
+  const elaDetailsRef = useRef<HTMLDetailsElement | null>(null);
   // ELA viewer state
   const [elaFollowVideo, setElaFollowVideo] = useState<boolean>(true);
   const [elaSelectedIdx, setElaSelectedIdx] = useState<number | null>(null);
+  const [elaFramesOverride, setElaFramesOverride] = useState<Array<{ uri: string; time_s?: number|null; index?: number }> | null>(null);
   // Add state for selected card
   const [selectedCardId, setSelectedCardId] = useState<string | undefined>(undefined);
 
@@ -227,7 +232,7 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
     setVideoTime(0);
     setMediaDuration(null);
     setElaSelectedIdx(null);
-  }, [selected?.id, selected?.analyzedAt]);
+  }, [selected]);
 
   // Resolve playback URL for the selected item (once per selection)
   useEffect(() => {
@@ -449,6 +454,7 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
   // Memoize ELA frames extracted from selected summary
   type ELAFrame = { uri: string; time_s?: number|null; index?: number };
   const elaFrames: ELAFrame[] = React.useMemo(() => {
+    if (elaFramesOverride && elaFramesOverride.length) return elaFramesOverride as ELAFrame[];
     if (!selected) return [];
     const s: any = selected;
     const grab = (obj: any) => {
@@ -471,7 +477,7 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
     const list = (frames || []).filter((f: any) => !!f && typeof f.uri === 'string' && f.uri.length>0)
       .filter((f: any) => { if (seen.has(f.uri)) return false; seen.add(f.uri); return true; }) as ELAFrame[];
     return list;
-  }, [selected?.id, selected?.analyzedAt]);
+  }, [selected?.id, selected?.analyzedAt, elaFramesOverride]);
 
   // Auto-follow: update current ELA selection based on video time
   useEffect(() => {
@@ -560,333 +566,407 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                   const isActive = selected?.id===a.id && selected.analyzedAt===a.analyzedAt;
                   const isChecked = checkedIds.includes(a.id);
                   const showDelete = isActive || isChecked; // show when row is active (clicked) or checkbox-selected
+                  const modelTag = (() => {
+                    const m = (a.summary.deepfake_method || '').toLowerCase();
+                    if (!m) return null;
+                    if (m.includes('fusion-lr')) return 'fusion-lr';
+                    if (m.includes('fusion-blend')) return 'fusion-blend';
+                    if (m.includes('stub') || m.includes('hash')) return 'hash-stub';
+                    return null;
+                  })();
                   return (
-                    <div
-                      className={`tr ${flagged ? 'flagged' : ''} ${isActive ? 'active' : ''} ${showDelete ? 'has-action' : ''}`}
-                      role="row"
-                      key={a.id+"-"+a.analyzedAt}
-                      data-id={a.id}
-                      onClick={(e) => { if(!(e.target as HTMLElement).closest('.sel input')) setSelected(a); }}
-                    >
-                      <div className="td sel" role="cell"><input type="checkbox" aria-label={`Select ${a.fileName}`} checked={checkedIds.includes(a.id)} readOnly onClick={(e)=>handleCheckboxClick(e, a.id, idx)} /></div>
-                      <div className="td filename" role="cell" title={a.fileName}>{a.fileName}</div>
-                      <div className="td" role="cell">{a.summary.duration_s ? a.summary.duration_s.toFixed(2)+'s' : '—'}</div>
-                      <div className="td likelihood-cell" role="cell">
-                        <div className={`likelihood-meter ${flagged? 'alert': ''} ${pctClass}`}> <div className="fill" /> </div>
-                        <span className={`pct-text ${flagged? 'alert': ''}`}>{pct}</span>
+                    <React.Fragment key={a.id+"-"+a.analyzedAt}>
+                      <div
+                        className={`tr ${flagged ? 'flagged' : ''} ${isActive ? 'active' : ''} ${showDelete ? 'has-action' : ''}`}
+                        role="row"
+                        data-id={a.id}
+                        onClick={(e) => {
+                          const el = (e.target as HTMLElement);
+                          if (el.closest('.sel input') || el.closest('.row-delete')) return; // ignore clicks on checkbox/delete button
+                          if (isActive) { setSelected(null); } else { setSelected(a); }
+                        }}
+                      >
+                        <div className="td sel" role="cell"><input type="checkbox" aria-label={`Select ${a.fileName}`} checked={checkedIds.includes(a.id)} readOnly onClick={(e)=>handleCheckboxClick(e, a.id, idx)} /></div>
+                        <div className="td filename" role="cell" title={a.fileName}>{a.fileName}</div>
+                        <div className="td" role="cell">{a.summary.duration_s ? a.summary.duration_s.toFixed(2)+'s' : '—'}</div>
+                        <div className="td likelihood-cell" role="cell">
+                          <div className={`likelihood-meter ${flagged? 'alert': ''} ${pctClass}`}> <div className="fill" /> </div>
+                          <span className={`pct-text ${flagged? 'alert': ''}`}>{pct}</span>
+                        </div>
+                        <div className="td" role="cell">{a.summary.deepfake_label || '—'}</div>
+                        <div className="td analyzed-cell" role="cell">
+                          {modelTag ? <span className={`model-badge ${modelTag}`}>{modelTag}</span> : null}
+                          <span className="analyzed-text">{new Date(a.analyzedAt).toLocaleString()}</span>
+                          <button className="row-delete" aria-label={`Delete ${a.fileName}`} title="Delete" onClick={(e)=>handleSingleDelete(a, e)}>×</button>
+                        </div>
                       </div>
-                      <div className="td" role="cell">{a.summary.deepfake_label || '—'}</div>
-                      <div className="td analyzed-cell" role="cell">
-                        <span className="analyzed-text">{new Date(a.analyzedAt).toLocaleString()}</span>
-                        <button className="row-delete" aria-label={`Delete ${a.fileName}`} title="Delete" onClick={(e)=>handleSingleDelete(a, e)}>×</button>
-                      </div>
-                    </div>
+                      {isActive && selected && (
+                        <div className="tr detail-row" role="row" key={a.id+"-"+a.analyzedAt+"-detail"}>
+                          <div className="td detail-cell" role="cell">
+                            {/* Inline analysis detail below the active row */}
+                            <div className="analysis-detail embedded" role="region" aria-label="Detailed analysis">
+                              <div className="detail-head">
+                                <h3 className="detail-title">{selected.fileName}</h3>
+                                <button className="detail-close" onClick={()=>setSelected(null)} aria-label="Close details">×</button>
+                              </div>
+                              <div className="detail-grid">
+                                <div><span className="k">Resolution</span><span className="v">{selected.summary.width && selected.summary.height ? `${selected.summary.width}x${selected.summary.height}` : '—'}</span></div>
+                                <div><span className="k">FPS</span><span className="v">{selected.summary.fps ?? '—'}</span></div>
+                                <div><span className="k">Format Valid</span><span className="v">{String(selected.summary.format_valid)}</span></div>
+                                <div><span className="k">Decode Valid</span><span className="v">{String(selected.summary.decode_valid)}</span></div>
+                                <div><span className="k">Deepfake %</span><span className="v">{((selected.summary.deepfake_likelihood||0)*100).toFixed(2)}%</span></div>
+                                <div><span className="k">Label</span><span className="v">{selected.summary.deepfake_label || '—'}</span></div>
+                              </div>
+                              {/* Overlay, video, frame timeline, and ELA blocks reuse existing state */}
+                              { (selected.summary as any)?.overlay_uri ? (
+                                <details className="overlay-block" open>
+                                  <summary>Overlay</summary>
+                                  <div className="overlay-preview">
+                                    <img
+                                      src={`${String(API_BASE).replace(/\/$/, '')}/static/${String(((selected.summary as any).overlay_uri || '')).replace(/^\/+/, '')}`}
+                                      alt="Model overlay"
+                                    />
+                                  </div>
+                                </details>
+                              ) : null}
+                              {(() => {
+                                const rawAsset = (selected as any)?.raw?.asset as any;
+                                const stored = rawAsset?.stored_path as string|undefined;
+                                const fs = (selected as any)?.raw?.summary?.frame_scores as Array<{ index:number; time_s:number|null; prob:number }>|undefined;
+                                const fps = (selected as any)?.raw?.summary?.frame_fps as number|undefined;
+                                const hasAny = !!detailVideoSrc || (fs && fs.length>0);
+                                if (!hasAny) return null;
+                                const maxH = 56; // px
+                                const duration = (selected.summary.duration_s as number|undefined) ?? (typeof fps==='number' && (selected as any)?.raw?.summary?.frame_total ? ((selected as any).raw.summary.frame_total / Math.max(1, fps)) : undefined);
+                                const effDuration = (mediaDuration && mediaDuration>0 ? mediaDuration : duration);
+                                return (
+                                  <details className="overlay-block" open>
+                                    <summary>Source video &amp; Frame likelihoods</summary>
+                                    <div className="overlay-content">
+                                      {detailVideoSrc && (
+                                        <div className="overlay-preview resizable">
+                                          <video
+                                            ref={videoRef}
+                                            key={(stored||'')+':'+(selected?.id||'')}
+                                            src={detailVideoSrc}
+                                            controls
+                                            preload="metadata"
+                                            playsInline
+                                            className="video-fluid"
+                                            onLoadedMetadata={(e)=>{ try { const d = (e.currentTarget as HTMLVideoElement).duration; if (Number.isFinite(d) && d>0) setMediaDuration(d); } catch {} }}
+                                            onTimeUpdate={(e)=>{ try { setVideoTime((e.currentTarget as HTMLVideoElement).currentTime || 0); } catch {} }}
+                                          />
+                                        </div>
+                                      )}
+                                      {fs && Array.isArray(fs) && fs.length>0 && (
+                                        <>
+                                        <div className="frame-scores" role="list">
+                                          {fs.map((f, i) => {
+                                            const h = Math.max(2, Math.round((Math.max(0, Math.min(1, f.prob))) * maxH));
+                                            const over = f.prob >= 0.5;
+                                            const tLabel = (f.time_s!=null ? `${f.time_s.toFixed(2)}s` : (fps ? `${(f.index/Math.max(1,fps)).toFixed(2)}s` : `#${f.index}`));
+                                            return (
+                                              <div
+                                                key={i}
+                                                role="listitem"
+                                                className={`fs-bar ${over ? 'alert' : ''}`}
+                                                title={`Frame ${f.index} • t=${tLabel} • p=${(f.prob*100).toFixed(1)}%`}
+                                                aria-label={`Frame ${f.index}, ${tLabel}, probability ${(f.prob*100).toFixed(1)} percent`}
+                                                data-h={h}
+                                                onClick={()=>{
+                                                  const fpsVal = (selected as any)?.raw?.summary?.frame_fps as number | undefined;
+                                                  const fpsFallback = (selected?.summary?.fps as number | undefined);
+                                                  const effFps = (typeof fpsVal==='number' && fpsVal>0) ? fpsVal : (typeof fpsFallback==='number' && fpsFallback>0 ? fpsFallback : undefined);
+                                                  const tt = (f.time_s!=null ? f.time_s : (effFps ? (f.index/effFps) : undefined));
+                                                  if (tt!=null) jumpToTime(tt, false);
+                                                }}
+                                              />
+                                            );
+                                          })}
+                                        </div>
+                                        <div className="frame-meta">
+                                          <span>samples: {fs.length}</span>
+                                          {typeof fps === 'number' && fps>0 ? <span> · fps: {fps.toFixed(2)}</span> : null}
+                                          <span> · <strong>blue</strong>=lower, <strong>red</strong>=higher likelihood</span>
+                                          <span> · threshold ≥ 50% outlined</span>
+                                        </div>
+                                        {(() => {
+                                          if (!effDuration) return null;
+                                          const items = fs.map((f)=>{
+                                            const t = f.time_s!=null ? f.time_s : (typeof fps==='number' && fps>0 ? (f.index/Math.max(1,fps)) : undefined);
+                                            const leftPct = t!=null ? Math.max(0, Math.min(100, Math.round((t/effDuration)*100))) : (typeof (selected as any)?.raw?.summary?.frame_total==='number' && (selected as any).raw.summary.frame_total>0 ? Math.max(0, Math.min(100, Math.round((f.index/((selected as any).raw.summary.frame_total))*100))) : 0);
+                                            const probPct = Math.max(0, Math.min(100, Math.round(f.prob*100)));
+                                            const hBucket = Math.round(probPct/5)*5;
+                                            return { leftPct, hBucket, idx: f.index, time: t, prob: f.prob };
+                                          });
+                                          const headLeft = Math.max(0, Math.min(100, Math.round((Math.max(0, videoTime) / effDuration) * 100)));
+                                          return (
+                                            <div className="frame-timeline" role="region" aria-label="Frame timeline">
+                                              <div className="ft-base" aria-hidden="true" />
+                                              <div className={`ft-head ft-p${headLeft}`} aria-hidden="true" />
+                                              {items.map((it, i) => (
+                                                <button
+                                                  key={i}
+                                                  type="button"
+                                                  className={`ft-mark ft-p${it.leftPct} h${it.hBucket} ${it.prob>=0.5?'alert':''}`}
+                                                  title={`t=${it.time!=null?it.time.toFixed(2)+'s':('frame #'+it.idx)} • p=${(it.prob*100).toFixed(1)}%`}
+                                                  data-tip={`${it.time!=null?it.time.toFixed(2)+'s':('frame #'+it.idx)} • ${(it.prob*100).toFixed(1)}%`}
+                                                  aria-label={`Timeline marker at ${it.time!=null?it.time.toFixed(2)+' seconds':'frame '+it.idx}, probability ${(it.prob*100).toFixed(1)} percent`}
+                                                  onClick={()=>{ if (it.time!=null) jumpToTime(it.time, false); }}
+                                                />
+                                              ))}
+                                              <div className="ft-axis" aria-hidden="true">
+                                                <span>0s</span>
+                                                <span>{effDuration.toFixed(2)}s</span>
+                                              </div>
+                                            </div>
+                                          );
+                                        })()}
+                                        </>
+                                      )}
+                                    </div>
+                                  </details>
+                                );
+                              })()}
+                              {(() => {
+                                // ELA frames viewer + grid
+                                const list = elaFrames;
+                                const assetIdUnknown = (selected as any)?.raw?.asset?.asset_id;
+                                const numericId = ((): number | null => {
+                                  if (assetIdUnknown === undefined || assetIdUnknown === null) return null;
+                                  const n = Number(assetIdUnknown);
+                                  return (Number.isFinite(n) && String(n) === String(assetIdUnknown).trim()) ? n : null;
+                                })();
+                                async function handleGenerateELA() {
+                                  setElaError(null); setElaStatus(null); setElaAction('generate'); setElaLoading(true);
+                                  try {
+                                    const tok = getAuthState().token;
+                                    const headers: Record<string,string> = { 'Content-Type': 'application/json' };
+                                    if (tok) headers['Authorization'] = `Bearer ${tok}`;
+                                    let res: Response;
+                                    if (numericId !== null) {
+                                      res = await fetch(`${API_BASE}/api/ela/generate`, {
+                                        method: 'POST', headers,
+                                        body: JSON.stringify({ asset_id: numericId, frames: 12, quality: 90, scale: 12.0 }),
+                                      });
+                                    } else {
+                                      const sp = (selected as any)?.raw?.asset?.stored_path;
+                                      const sha = (selected as any)?.raw?.asset?.sha256;
+                                      if (!sp) throw new Error('No asset reference for ELA');
+                                      res = await fetch(`${API_BASE}/api/ela/generate-by-path`, {
+                                        method: 'POST', headers,
+                                        body: JSON.stringify({ stored_path: sp, sha256: sha, frames: 12, quality: 90, scale: 12.0 }),
+                                      });
+                                    }
+                                    if (!res.ok) throw new Error(await res.text());
+                                    const data = await res.json();
+                                    const listNew = Array.isArray(data.ela_frames) ? data.ela_frames : [];
+                                    const updated = { ...selected } as any;
+                                    const uris = (listNew || []).map((f:any)=>f && f.uri).filter(Boolean);
+                                    updated.summary = { ...(updated.summary || {}), ela_frames: listNew, ela_uris: uris, ela: { frames: listNew, uris } };
+                                    if ((updated as any).raw && (updated as any).raw.summary) {
+                                      (updated as any).raw.summary = { ...((updated as any).raw.summary || {}), ela_frames: listNew, ela_uris: uris, ela: { frames: listNew, uris } };
+                                    }
+                                    setElaSelectedIdx(0);
+                                    setElaFramesOverride(listNew);
+                                    setSelected(updated);
+                                    try {
+                                      upsertAnalysis({ ...(updated as any), summary: updated.summary } as any);
+                                      const list2 = activePageKey ? getAnalysesForPage(activePageKey) : getAllAnalyses();
+                                      setAnalyses(list2);
+                                    } catch {}
+                                    setElaStatus(`Generated ${listNew.length} ${listNew.length===1?'ELA frame':'ELA frames'}`);
+                                    setTimeout(()=> setElaStatus(null), 3000);
+                                    try { if (elaDetailsRef.current) { elaDetailsRef.current.open = true; } } catch {}
+                                    setElaFlash(true); setTimeout(()=> setElaFlash(false), 800);
+                                  } catch (e: any) {
+                                    setElaError(e?.message || 'Failed to generate ELA frames');
+                                  } finally { setElaAction(null); setElaLoading(false); }
+                                }
+                                async function handleReloadELA() {
+                                  setElaError(null); setElaStatus(null); setElaAction('reload'); setElaLoading(true);
+                                  try {
+                                    const tok = getAuthState().token;
+                                    const headers: Record<string,string> = { };
+                                    if (tok) headers['Authorization'] = `Bearer ${tok}`;
+                                    let res: Response;
+                                    if (numericId !== null) {
+                                      const url = `${API_BASE}/api/ela/list?asset_id=${encodeURIComponent(String(numericId))}`;
+                                      res = await fetch(url, { method: 'GET', headers });
+                                    } else {
+                                      const sp = (selected as any)?.raw?.asset?.stored_path;
+                                      const sha = (selected as any)?.raw?.asset?.sha256;
+                                      if (!sp) throw new Error('No asset reference for ELA reload');
+                                      const qs = new URLSearchParams({ stored_path: String(sp) });
+                                      if (sha) qs.set('sha256', String(sha));
+                                      const url = `${API_BASE}/api/ela/list-by-path?${qs.toString()}`;
+                                      res = await fetch(url, { method: 'GET', headers });
+                                    }
+                                    if (!res.ok) throw new Error(await res.text());
+                                    const data = await res.json();
+                                    const listNew = Array.isArray(data.ela_frames) ? data.ela_frames : [];
+                                    const updated = { ...selected } as any;
+                                    const uris = (listNew || []).map((f:any)=>f && f.uri).filter(Boolean);
+                                    updated.summary = { ...(updated.summary || {}), ela_frames: listNew, ela_uris: uris, ela: { frames: listNew, uris } };
+                                    if ((updated as any).raw && (updated as any).raw.summary) {
+                                      (updated as any).raw.summary = { ...((updated as any).raw.summary || {}), ela_frames: listNew, ela_uris: uris, ela: { frames: listNew, uris } };
+                                    }
+                                    setElaSelectedIdx(0);
+                                    setElaFramesOverride(listNew);
+                                    setSelected(updated);
+                                    try {
+                                      upsertAnalysis({ ...(updated as any), summary: updated.summary } as any);
+                                      const list2 = activePageKey ? getAnalysesForPage(activePageKey) : getAllAnalyses();
+                                      setAnalyses(list2);
+                                    } catch {}
+                                    setElaStatus(listNew.length>0 ? `Loaded ${listNew.length} ${listNew.length===1?'ELA frame':'ELA frames'}` : 'No ELA frames found');
+                                    setTimeout(()=> setElaStatus(null), 3000);
+                                    try { if (elaDetailsRef.current) { elaDetailsRef.current.open = true; } } catch {}
+                                    if (listNew.length>0) { setElaFlash(true); setTimeout(()=> setElaFlash(false), 800); }
+                                  } catch (e: any) {
+                                    setElaError(e?.message || 'Failed to reload ELA frames');
+                                  } finally { setElaAction(null); setElaLoading(false); }
+                                }
+                                const resolve = (uri: string) => {
+                                  try {
+                                    if (!uri) return uri;
+                                    if (/^(https?:)?\/\//i.test(uri)) return uri; // absolute or protocol-relative
+                                    if (/^data:/i.test(uri)) return uri; // data URL
+                                    const base = String(API_BASE).replace(/\/$/, '');
+                                    const path = String(uri).replace(/^\/+/, '');
+                                    return `${base}/static/${path}`;
+                                  } catch { return uri; }
+                                };
+                                const currentIdx = ((): number => {
+                                  if (elaSelectedIdx != null) return elaSelectedIdx;
+                                  if (!list.length) return 0;
+                                  const withTimes = list.filter(x => typeof x.time_s === 'number' && Number.isFinite(x.time_s as any));
+                                  if (elaFollowVideo && withTimes.length) {
+                                    let bestI = 0; let bestD = Infinity;
+                                    list.forEach((f, i) => {
+                                      const t: any = f.time_s;
+                                      if (typeof t === 'number' && Number.isFinite(t)) {
+                                        const d = Math.abs((t as number) - (videoTime || 0));
+                                        if (d < bestD) { bestD = d; bestI = i; }
+                                      }
+                                    });
+                                    return bestI;
+                                  }
+                                  return 0;
+                                })();
+                                const setAndMaybeSeek = (i: number) => {
+                                  setElaSelectedIdx(i);
+                                  const f = list[i];
+                                  const t = (f && typeof f.time_s === 'number' && Number.isFinite(f.time_s as any)) ? (f.time_s as number) : null;
+                                  if (t != null) jumpToTime(t, false);
+                                };
+                                return (
+                                  <details className="overlay-block" ref={elaDetailsRef as any}>
+                                    <summary>ELA frames{list.length ? ` (${list.length})` : ''}</summary>
+                                    <div className="ela-toolbar">
+                                      <button className="btn" onClick={handleGenerateELA} disabled={elaLoading}>
+                                        {elaLoading && elaAction==='generate' ? 'Generating…' : 'Generate ELA frames'}
+                                      </button>
+                                      <button className="btn ghost" onClick={handleReloadELA} disabled={elaLoading}>
+                                        {elaLoading && elaAction==='reload' ? 'Reloading…' : 'Reload'}
+                                      </button>
+                                      {elaStatus ? <span className="status-pill success" role="status" aria-live="polite">{elaStatus}</span> : null}
+                                      {elaError ? <span className="status-pill error" role="status" aria-live="assertive">{elaError}</span> : null}
+                                    </div>
+                                    {list.length ? (
+                                      <div className={`ela-grid${elaFlash ? ' ela-updated-flash' : ''}`}>
+                                        {(() => {
+                                          const idx = Math.max(0, Math.min(list.length-1, currentIdx));
+                                          const f = list[idx];
+                                          const src = resolve(f.uri);
+                                          const cap = (() => {
+                                            const parts: string[] = [];
+                                            if (typeof f.time_s === 'number' && Number.isFinite(f.time_s as any)) parts.push(`${(f.time_s as number).toFixed(2)}s`);
+                                            if (typeof f.index === 'number' && Number.isFinite(f.index as any)) parts.push(`#${f.index}`);
+                                            return parts.join(' • ') || `frame ${idx+1}`;
+                                          })();
+                                          const items = list.map((it, i) => {
+                                            let leftPct = 0;
+                                            if (typeof it.time_s === 'number' && Number.isFinite(it.time_s as any) && mediaDuration && mediaDuration > 0) {
+                                              leftPct = Math.max(0, Math.min(100, Math.round(((it.time_s as number) / mediaDuration) * 100)));
+                                            } else {
+                                              leftPct = Math.round((i / Math.max(1, list.length - 1)) * 100);
+                                            }
+                                            return { i, leftPct };
+                                          });
+                                          const headLeft = (() => {
+                                            if (mediaDuration && mediaDuration > 0) {
+                                              return Math.max(0, Math.min(100, Math.round(((Math.max(0, videoTime)) / mediaDuration) * 100)));
+                                            }
+                                            return Math.round(((idx) / Math.max(1, list.length - 1)) * 100);
+                                          })();
+                                          return (
+                                            <div className="ela-viewer-block">
+                                              <div className="ela-viewer-head">
+                                                <div className="left"><span className="muted">ELA preview</span></div>
+                                                <div className="right">
+                                                  <label className="chk"><input type="checkbox" checked={elaFollowVideo} onChange={(e)=>setElaFollowVideo(e.currentTarget.checked)} /> Follow video</label>
+                                                  <button className="btn ghost" onClick={()=>{ if (idx>0) setAndMaybeSeek(idx-1); }} disabled={idx<=0}>Prev</button>
+                                                  <button className="btn ghost" onClick={()=>{ if (idx<list.length-1) setAndMaybeSeek(idx+1); }} disabled={idx>=list.length-1}>Next</button>
+                                                  <a className="btn ghost" href={src} target="_blank" rel="noreferrer">Open</a>
+                                                </div>
+                                              </div>
+                                              <div className="ela-view">
+                                                <img src={src} alt={`ELA ${cap}`} className="ela-img" />
+                                                <div className="ela-cap">{cap}</div>
+                                              </div>
+                                              <div className="ela-timeline" role="region" aria-label="ELA timeline">
+                                                <div className="ft-base" aria-hidden="true" />
+                                                <div className={`ft-head ft-p${headLeft}`} aria-hidden="true" />
+                                                {items.map(({i, leftPct}) => (
+                                                  <button key={i} type="button" className={`ft-mark ft-p${leftPct} ${i===idx?'active':''}`} onClick={()=> setAndMaybeSeek(i)} />
+                                                ))}
+                                                <div className="ft-axis" aria-hidden="true">
+                                                  <span>0s</span>
+                                                  <span>{mediaDuration ? mediaDuration.toFixed(2)+'s' : ''}</span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          );
+                                        })()}
+                                        {list.map((f, i) => {
+                                          const cap = ((): string => {
+                                            const t = (typeof f.time_s === 'number' && Number.isFinite(f.time_s)) ? `${(f.time_s as number).toFixed(2)}s` : undefined;
+                                            const idx2 = (typeof f.index === 'number' && Number.isFinite(f.index)) ? `#${f.index}` : undefined;
+                                            return t ? (idx2 ? `${t} • ${idx2}` : t) : (idx2 || `frame ${i+1}`);
+                                          })();
+                                          const src = resolve(f.uri);
+                                          return (
+                                            <a key={i} className="ela-item" href={src} target="_blank" rel="noreferrer" title={cap} onClick={(e)=>{ e.preventDefault(); setAndMaybeSeek(i); }}>
+                                              <figure>
+                                                <img src={src} loading="lazy" alt={cap || 'ELA frame'} />
+                                                <figcaption className="cap">{cap}</figcaption>
+                                              </figure>
+                                            </a>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : (
+                                      <div className="overlay-content"><div className="muted">No ELA frames available for this analysis.</div></div>
+                                    )}
+                                  </details>
+                                );
+                              })()}
+                              {selected.raw && (
+                                <details className="raw-block">
+                                  <summary>Raw JSON</summary>
+                                  <pre>{JSON.stringify(selected.raw, null, 2)}</pre>
+                                </details>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </div>
             </div>
-            {selected && (
-              <div className="analysis-detail" role="region" aria-label="Detailed analysis">
-                <div className="detail-head">
-                  <h3 className="detail-title">{selected.fileName}</h3>
-                  <button className="detail-close" onClick={()=>setSelected(null)} aria-label="Close details">×</button>
-                </div>
-                <div className="detail-grid">
-                  <div><span className="k">Resolution</span><span className="v">{selected.summary.width && selected.summary.height ? `${selected.summary.width}x${selected.summary.height}` : '—'}</span></div>
-                  <div><span className="k">FPS</span><span className="v">{selected.summary.fps ?? '—'}</span></div>
-                  <div><span className="k">Format Valid</span><span className="v">{String(selected.summary.format_valid)}</span></div>
-                  <div><span className="k">Decode Valid</span><span className="v">{String(selected.summary.decode_valid)}</span></div>
-                  <div><span className="k">Deepfake %</span><span className="v">{((selected.summary.deepfake_likelihood||0)*100).toFixed(2)}%</span></div>
-                  <div><span className="k">Label</span><span className="v">{selected.summary.deepfake_label || '—'}</span></div>
-                </div>
-                {/* ELA generate action moved into the ELA section toolbar below */}
-                { (selected.summary as any)?.overlay_uri ? (
-                  <details className="overlay-block" open>
-                    <summary>Overlay</summary>
-                    <div className="overlay-preview">
-                      <img
-                        src={`${String(API_BASE).replace(/\/$/, '')}/static/${String(((selected.summary as any).overlay_uri || '')).replace(/^\/+/, '')}`}
-                        alt="Model overlay"
-                      />
-                    </div>
-                  </details>
-                ) : null}
-                {(() => {
-                  const rawAsset = (selected as any)?.raw?.asset as any;
-                  const stored = rawAsset?.stored_path as string|undefined;
-                  const fs = (selected as any)?.raw?.summary?.frame_scores as Array<{ index:number; time_s:number|null; prob:number }>|undefined;
-                  const fps = (selected as any)?.raw?.summary?.frame_fps as number|undefined;
-                  const hasAny = !!detailVideoSrc || (fs && fs.length>0);
-                  if (!hasAny) return null;
-                  const maxH = 56; // px
-                  const duration = (selected.summary.duration_s as number|undefined) ?? (typeof fps==='number' && (selected as any)?.raw?.summary?.frame_total ? ((selected as any).raw.summary.frame_total / Math.max(1, fps)) : undefined);
-                  const effDuration = (mediaDuration && mediaDuration>0 ? mediaDuration : duration);
-                  return (
-                    <details className="overlay-block" open>
-                      <summary>Source video &amp; Frame likelihoods</summary>
-                      <div className="overlay-content">
-                        {detailVideoSrc && (
-                          <div className="overlay-preview resizable">
-                            <video
-                              ref={videoRef}
-                              key={(stored||'')+':'+(selected?.id||'')}
-                              src={detailVideoSrc}
-                              controls
-                              preload="metadata"
-                              playsInline
-                              className="video-fluid"
-                              onLoadedMetadata={(e)=>{ try { const d = (e.currentTarget as HTMLVideoElement).duration; if (Number.isFinite(d) && d>0) setMediaDuration(d); } catch {} }}
-                              onTimeUpdate={(e)=>{ try { setVideoTime((e.currentTarget as HTMLVideoElement).currentTime || 0); } catch {} }}
-                            />
-                          </div>
-                        )}
-                        {fs && Array.isArray(fs) && fs.length>0 && (
-                          <>
-                          <div className="frame-scores" role="list">
-                            {fs.map((f, i) => {
-                              const h = Math.max(2, Math.round((Math.max(0, Math.min(1, f.prob))) * maxH));
-                              const over = f.prob >= 0.5;
-                              const tLabel = (f.time_s!=null ? `${f.time_s.toFixed(2)}s` : (fps ? `${(f.index/Math.max(1,fps)).toFixed(2)}s` : `#${f.index}`));
-                              return (
-                                <div
-                                  key={i}
-                                  role="listitem"
-                                  className={`fs-bar ${over ? 'alert' : ''}`}
-                                  title={`Frame ${f.index} • t=${tLabel} • p=${(f.prob*100).toFixed(1)}%`}
-                                  aria-label={`Frame ${f.index}, ${tLabel}, probability ${(f.prob*100).toFixed(1)} percent`}
-                                  data-h={h}
-                                  onClick={()=>{
-                                    const fpsVal = (selected as any)?.raw?.summary?.frame_fps as number | undefined;
-                                    const fpsFallback = (selected?.summary?.fps as number | undefined);
-                                    const effFps = (typeof fpsVal==='number' && fpsVal>0) ? fpsVal : (typeof fpsFallback==='number' && fpsFallback>0 ? fpsFallback : undefined);
-                                    const tt = (f.time_s!=null ? f.time_s : (effFps ? (f.index/effFps) : undefined));
-                                    if (tt!=null) jumpToTime(tt, false);
-                                  }}
-                                />
-                              );
-                            })}
-                          </div>
-                          <div className="frame-meta">
-                            <span>samples: {fs.length}</span>
-                            {typeof fps === 'number' && fps>0 ? <span> · fps: {fps.toFixed(2)}</span> : null}
-                            <span> · <strong>blue</strong>=lower, <strong>red</strong>=higher likelihood</span>
-                            <span> · threshold ≥ 50% outlined</span>
-                          </div>
-                          {(() => {
-                            if (!effDuration) return null;
-                            const items = fs.map((f)=>{
-                              const t = f.time_s!=null ? f.time_s : (typeof fps==='number' && fps>0 ? (f.index/Math.max(1,fps)) : undefined);
-                              const leftPct = t!=null ? Math.max(0, Math.min(100, Math.round((t/effDuration)*100))) : (typeof (selected as any)?.raw?.summary?.frame_total==='number' && (selected as any).raw.summary.frame_total>0 ? Math.max(0, Math.min(100, Math.round((f.index/((selected as any).raw.summary.frame_total))*100))) : 0);
-                              const probPct = Math.max(0, Math.min(100, Math.round(f.prob*100)));
-                              const hBucket = Math.round(probPct/5)*5;
-                              return { leftPct, hBucket, idx: f.index, time: t, prob: f.prob };
-                            });
-                            const headLeft = Math.max(0, Math.min(100, Math.round((Math.max(0, videoTime) / effDuration) * 100)));
-                            return (
-                              <div className="frame-timeline" role="region" aria-label="Frame timeline">
-                                <div className="ft-base" aria-hidden="true" />
-                                <div className={`ft-head ft-p${headLeft}`} aria-hidden="true" />
-                                {items.map((it, i) => (
-                                  <button
-                                    key={i}
-                                    type="button"
-                                    className={`ft-mark ft-p${it.leftPct} h${it.hBucket} ${it.prob>=0.5?'alert':''}`}
-                                    title={`t=${it.time!=null?it.time.toFixed(2)+'s':('frame #'+it.idx)} • p=${(it.prob*100).toFixed(1)}%`}
-                                    data-tip={`${it.time!=null?it.time.toFixed(2)+'s':('frame #'+it.idx)} • ${(it.prob*100).toFixed(1)}%`}
-                                    aria-label={`Timeline marker at ${it.time!=null?it.time.toFixed(2)+' seconds':'frame '+it.idx}, probability ${(it.prob*100).toFixed(1)} percent`}
-                                    onClick={()=>{ if (it.time!=null) jumpToTime(it.time, false); }}
-                                  />
-                                ))}
-                                <div className="ft-axis" aria-hidden="true">
-                                  <span>0s</span>
-                                  <span>{effDuration.toFixed(2)}s</span>
-                                </div>
-                              </div>
-                            );
-                          })()}
-                          </>
-                        )}
-                      </div>
-                    </details>
-                  );
-                })()}
-                {(() => {
-                  // ELA frames viewer + grid
-                  const list = elaFrames;
-                  // Inline generator for ELA frames (used by toolbar button)
-                  const assetIdUnknown = (selected as any)?.raw?.asset?.asset_id;
-                  const numericId = ((): number | null => {
-                    if (assetIdUnknown === undefined || assetIdUnknown === null) return null;
-                    const n = Number(assetIdUnknown);
-                    return (Number.isFinite(n) && String(n) === String(assetIdUnknown).trim()) ? n : null;
-                  })();
-                  async function handleGenerateELA() {
-                    setElaError(null); setElaLoading(true);
-                    try {
-                      const tok = getAuthState().token;
-                      const headers: Record<string,string> = { 'Content-Type': 'application/json' };
-                      if (tok) headers['Authorization'] = `Bearer ${tok}`;
-                      let res: Response;
-                      if (numericId !== null) {
-                        res = await fetch(`${API_BASE}/api/ela/generate`, {
-                          method: 'POST', headers,
-                          body: JSON.stringify({ asset_id: numericId, frames: 12, quality: 90, scale: 12.0 }),
-                        });
-                      } else {
-                        const sp = (selected as any)?.raw?.asset?.stored_path;
-                        const sha = (selected as any)?.raw?.asset?.sha256;
-                        if (!sp) throw new Error('No asset reference for ELA');
-                        res = await fetch(`${API_BASE}/api/ela/generate-by-path`, {
-                          method: 'POST', headers,
-                          body: JSON.stringify({ stored_path: sp, sha256: sha, frames: 12, quality: 90, scale: 12.0 }),
-                        });
-                      }
-                      if (!res.ok) throw new Error(await res.text());
-                      const data = await res.json();
-                      const listNew = Array.isArray(data.ela_frames) ? data.ela_frames : [];
-                      const updated = { ...selected } as any;
-                      updated.summary = { ...(updated.summary || {}), ela_frames: listNew };
-                      setSelected(updated);
-                      try {
-                        upsertAnalysis({ ...(updated as any), summary: updated.summary } as any);
-                        const list2 = activePageKey ? getAnalysesForPage(activePageKey) : getAllAnalyses();
-                        setAnalyses(list2);
-                      } catch {}
-                    } catch (e: any) {
-                      setElaError(e?.message || 'Failed to generate ELA frames');
-                    } finally { setElaLoading(false); }
-                  }
-                  const resolve = (uri: string) => {
-                    try {
-                      if (!uri) return uri;
-                      if (/^(https?:)?\/\//i.test(uri)) return uri; // absolute or protocol-relative
-                      if (/^data:/i.test(uri)) return uri; // data URL
-                      const base = String(API_BASE).replace(/\/$/, '');
-                      const path = String(uri).replace(/^\/+/, '');
-                      return `${base}/static/${path}`;
-                    } catch { return uri; }
-                  };
-                  const currentIdx = ((): number => {
-                    if (elaSelectedIdx != null) return elaSelectedIdx;
-                    if (!list.length) return 0;
-                    const withTimes = list.filter(x => typeof x.time_s === 'number' && Number.isFinite(x.time_s as any));
-                    if (elaFollowVideo && withTimes.length) {
-                      let bestI = 0; let bestD = Infinity;
-                      list.forEach((f, i) => {
-                        const t: any = f.time_s;
-                        if (typeof t === 'number' && Number.isFinite(t)) {
-                          const d = Math.abs((t as number) - (videoTime || 0));
-                          if (d < bestD) { bestD = d; bestI = i; }
-                        }
-                      });
-                      return bestI;
-                    }
-                    return 0;
-                  })();
-                  const setAndMaybeSeek = (i: number) => {
-                    setElaSelectedIdx(i);
-                    const f = list[i];
-                    const t = (f && typeof f.time_s === 'number' && Number.isFinite(f.time_s as any)) ? (f.time_s as number) : null;
-                    if (t != null) jumpToTime(t, false);
-                  };
-                  return (
-                    <details className="overlay-block">
-                      <summary>ELA frames{list.length ? ` (${list.length})` : ''}</summary>
-                      <div className="ela-toolbar">
-                        <button className="btn" onClick={handleGenerateELA} disabled={elaLoading}>
-                          {elaLoading ? 'Generating ELA…' : 'Generate ELA frames'}
-                        </button>
-                        {elaError ? <span className="muted ela-error">{elaError}</span> : null}
-                      </div>
-                      {list.length ? (
-                        <div className="ela-grid">
-                          {/* Interactive viewer */}
-                          {(() => {
-                            const idx = Math.max(0, Math.min(list.length-1, currentIdx));
-                            const f = list[idx];
-                            const src = resolve(f.uri);
-                            const cap = (() => {
-                              const parts: string[] = [];
-                              if (typeof f.time_s === 'number' && Number.isFinite(f.time_s as any)) parts.push(`${(f.time_s as number).toFixed(2)}s`);
-                              if (typeof f.index === 'number' && Number.isFinite(f.index as any)) parts.push(`#${f.index}`);
-                              return parts.join(' • ') || `frame ${idx+1}`;
-                            })();
-                            const items = list.map((it, i) => {
-                              let leftPct = 0;
-                              if (typeof it.time_s === 'number' && Number.isFinite(it.time_s as any) && mediaDuration && mediaDuration > 0) {
-                                leftPct = Math.max(0, Math.min(100, Math.round(((it.time_s as number) / mediaDuration) * 100)));
-                              } else {
-                                leftPct = Math.round((i / Math.max(1, list.length - 1)) * 100);
-                              }
-                              return { i, leftPct };
-                            });
-                            const headLeft = (() => {
-                              if (mediaDuration && mediaDuration > 0) {
-                                return Math.max(0, Math.min(100, Math.round(((Math.max(0, videoTime)) / mediaDuration) * 100)));
-                              }
-                              return Math.round(((idx) / Math.max(1, list.length - 1)) * 100);
-                            })();
-                            return (
-                              <div className="ela-viewer-block">
-                                <div className="ela-viewer-head">
-                                  <div className="left"><span className="muted">ELA preview</span></div>
-                                  <div className="right">
-                                    <label className="chk"><input type="checkbox" checked={elaFollowVideo} onChange={(e)=>setElaFollowVideo(e.currentTarget.checked)} /> Follow video</label>
-                                    <button className="btn ghost" onClick={()=>{ if (idx>0) setAndMaybeSeek(idx-1); }} disabled={idx<=0}>Prev</button>
-                                    <button className="btn ghost" onClick={()=>{ if (idx<list.length-1) setAndMaybeSeek(idx+1); }} disabled={idx>=list.length-1}>Next</button>
-                                    <a className="btn ghost" href={src} target="_blank" rel="noreferrer">Open</a>
-                                  </div>
-                                </div>
-                                <div className="ela-view">
-                                  <img src={src} alt={`ELA ${cap}`} className="ela-img" />
-                                  <div className="ela-cap">{cap}</div>
-                                </div>
-                                <div className="ela-timeline" role="region" aria-label="ELA timeline">
-                                  <div className="ft-base" aria-hidden="true" />
-                                  <div className={`ft-head ft-p${headLeft}`} aria-hidden="true" />
-                                  {items.map(({i, leftPct}) => (
-                                    <button key={i} type="button" className={`ft-mark ft-p${leftPct} ${i===idx?'active':''}`} onClick={()=> setAndMaybeSeek(i)} />
-                                  ))}
-                                  <div className="ft-axis" aria-hidden="true">
-                                    <span>0s</span>
-                                    <span>{mediaDuration ? mediaDuration.toFixed(2)+'s' : ''}</span>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })()}
-                          {/* Grid below viewer */}
-                          {list.map((f, i) => {
-                            const cap = ((): string => {
-                              const t = (typeof f.time_s === 'number' && Number.isFinite(f.time_s)) ? `${(f.time_s as number).toFixed(2)}s` : undefined;
-                              const idx = (typeof f.index === 'number' && Number.isFinite(f.index)) ? `#${f.index}` : undefined;
-                              return t ? (idx ? `${t} • ${idx}` : t) : (idx || `frame ${i+1}`);
-                            })();
-                            const src = resolve(f.uri);
-                            return (
-                              <a key={i} className="ela-item" href={src} target="_blank" rel="noreferrer" title={cap} onClick={(e)=>{ e.preventDefault(); setAndMaybeSeek(i); }}>
-                                <figure>
-                                  <img src={src} loading="lazy" alt={cap || 'ELA frame'} />
-                                  <figcaption className="cap">{cap}</figcaption>
-                                </figure>
-                              </a>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="overlay-content"><div className="muted">No ELA frames available for this analysis.</div></div>
-                      )}
-                    </details>
-                  );
-                })()}
-                {selected.raw && (
-                  <details className="raw-block">
-                    <summary>Raw JSON</summary>
-                    <pre>{JSON.stringify(selected.raw, null, 2)}</pre>
-                  </details>
-                )}
-              </div>
-            )}
           </div>
         )}
       </div>

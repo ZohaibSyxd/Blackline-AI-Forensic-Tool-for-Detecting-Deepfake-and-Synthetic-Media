@@ -1,0 +1,18 @@
+.btn-toggle { display: inline-flex; gap: 6px; margin-right: 8px; }
+.btn-toggle .btn { border: 1px solid var(--border-color, #d0d7de); background: #fff; }
+.btn-toggle .btn.selected { background: var(--primary-50, #e8eefc); border-color: var(--primary-400, #4f6edb); box-shadow: inset 0 0 0 1px var(--primary-400, #4f6edb); }
+
+/* Match model badge styling used on Reports page */
+.model-badge {
+	display: inline-block;
+	padding: 4px 8px;
+	border-radius: 14px;
+	font-size: 11px;
+	font-weight: 700;
+	border: 1px solid transparent;
+	text-transform: lowercase;
+}
+.model-badge.fusion-blend { background:#eef6ff; color:#255f9c; border-color:#cfe3ff; }
+.model-badge.fusion-lr { background:#fef3c7; color:#92400e; border-color:#fde68a; }
+.model-badge.hash-stub { background:#ecfdf5; color:#065f46; border-color:#a7f3d0; }
+.model-badge.with-gap { margin-left: 8px; }
