@@ -119,7 +119,7 @@ python -m backend.src.models.compute_copy_move `
   --limit 200
 
 # 11) Noise analysis over normalized frames (quick test)
-python -m backend.src.models.compute_noise `
+python -m backend.src.models.noise_detector.compute_noise `
   --frames   .\backend\data\derived\frames_normalized.jsonl `
   --root     .\backend\data\derived\normalized `
   --out      .\backend\data\derived\frames_noise.jsonl `
@@ -139,11 +139,11 @@ python -m backend.src.models.df_detector `
 ##### DEEP MODELS — INFERENCE & TRAINING #####
 
 # 14) Xception (timm) — per-frame inference (P(FAKE)), optional shot aggregation
-python -m backend.src.models.xception_infer `
+python -m backend.src.models.xception.xception_infer `
   --frames-jsonl .\backend\data\derived\frames_normalized.jsonl `
   --root .\backend\data\derived `
   --out .\backend\data\derived\xception_scores_frames.jsonl `
-  --checkpoint .\backend\models\xception_v1.pth `
+  --checkpoint .\backend\models\xception_best_v2.pth `
   --batch-size 32 --num-workers 0 `
   --use-faces `
   --aggregate-shot-out .\backend\data\derived\xception_scores_shots.jsonl
@@ -159,14 +159,14 @@ python -m backend.src.models.xception_train `
   --num-workers 4
 
 # 16) TimeSformer — per-clip inference (requires clips.jsonl from step 5b)
-python -m backend.src.models.timesformer_infer `
+python -m backend.src.models.timesformer.timesformer_infer `
   --clips .\backend\data\derived\clips.jsonl `
   --clips-root .\backend\data\derived\clips `
-  --checkpoint .\backend\models\timesformer_v1.pt `
-  --config .\backend\models\timesformer_v1.config.json `
+  --checkpoint .\backend\models\timesformer_best.pt `
+  --config .\backend\models\timesformer_best.config.json `
   --out .\backend\data\derived\timesformer_scores.jsonl `
   --frames 8 --size 224 --batch-size 2 --device auto
-
+a
 # 17) TimeSformer — training (saves .pt + .config.json with threshold)
 python -m backend.src.models.timesformer_train `
   --clips .\backend\data\derived\clips.jsonl `
@@ -177,17 +177,16 @@ python -m backend.src.models.timesformer_train `
   --epochs 10 --batch-size 4 --frames 16 --size 224
 
 # 18) Fusion (blend) — grid-search α (Xception p95 + TimeSformer median)
-python -m backend.src.models.fuse_models `
+python -m backend.src.fuse_models `
   --xception .\backend\data\derived\xception_scores_frames.jsonl `
   --timesformer .\backend\data\derived\timesformer_scores.jsonl `
   --manifest .\backend\data\derived\manifest.csv `
   --agg-frame p95 --agg-clip median `
-  --learn-alpha `
   --use-split --val-as-test `
   --out .\backend\data\derived\fusion_predictions.jsonl
 
 # 19) Fusion (stacking) — Logistic Regression (+ optional calibration)
-python -m backend.src.models.fuse_models_lr `
+python -m backend.src.fuse_models_lr `
   --xception .\backend\data\derived\xception_scores_frames.jsonl `
   --timesformer .\backend\data\derived\timesformer_scores.jsonl `
   --manifest .\backend\data\derived\manifest.csv `
