@@ -85,7 +85,38 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   // track ongoing thumbnail generations to avoid duplicate work
   const thumbGenRef = useRef<Record<string, boolean>>({});
 
-  // Generate a thumbnail for a video File and return a blob URL
+  // Generate a thumbnail for an image File and return a persistent data URL
+  async function generateImageThumbnail(file: File, targetH = 96): Promise<string> {
+    return new Promise((resolve, reject) => {
+      try {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const iw = Math.max(1, img.naturalWidth || img.width || 320);
+            const ih = Math.max(1, img.naturalHeight || img.height || 240);
+            const scale = targetH / ih;
+            const cw = Math.max(1, Math.round(iw * scale));
+            const ch = Math.max(1, Math.round(ih * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = cw; canvas.height = ch;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return reject(new Error('thumb-failed'));
+            ctx.drawImage(img, 0, 0, cw, ch);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+            resolve(dataUrl);
+          } catch (e) { reject(e as any); }
+        };
+        img.onerror = () => reject(new Error('thumb-failed'));
+  const src = URL.createObjectURL(file);
+  const revoke = () => { try { URL.revokeObjectURL(src); } catch {} };
+  img.addEventListener('load', revoke, { once: true } as any);
+  img.addEventListener('error', revoke, { once: true } as any);
+  img.src = src;
+      } catch (e) { reject(e as any); }
+    });
+  }
+
+  // Generate a thumbnail for a video File and return a persistent data URL
   async function generateVideoThumbnail(file: File, timeSec = 0.2): Promise<string> {
     return new Promise((resolve, reject) => {
       try {
@@ -117,11 +148,9 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
             const ctx = canvas.getContext('2d');
             if (!ctx) return fail();
             ctx.drawImage(video, 0, 0, cw, ch);
-            canvas.toBlob((blob) => {
-              cleanup();
-              if (!blob) return fail();
-              resolve(URL.createObjectURL(blob));
-            }, 'image/jpeg', 0.82);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+            cleanup();
+            resolve(dataUrl);
           } catch (e) { fail(e); }
         };
         video.src = src;
@@ -257,8 +286,8 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         if (detail.pageKey !== current) return;
         const idSet = new Set(detail.ids);
         setItems(prev => {
-          // revoke previews and drop from memory for removed items
-          prev.forEach(it => { if (idSet.has(it.id) && it.preview) URL.revokeObjectURL(it.preview); });
+          // revoke previews and drop from memory for removed items (only if blob URLs)
+          prev.forEach(it => { if (idSet.has(it.id) && it.preview && it.preview.startsWith('blob:')) { try { URL.revokeObjectURL(it.preview); } catch {} } });
           detail.ids.forEach(id => { delete filesRef.current[id]; });
           return prev.filter(it => !idSet.has(it.id));
         });
@@ -283,12 +312,15 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
           const compositeId = pageKey ? `${pageKey}::${si.id}` : si.id;
             const file = memoryFilesGlobal[compositeId] || await loadFile(compositeId);
             if (file) memoryFilesGlobal[compositeId] = file;
+            // Drop any non-persistent blob: previews stored from older sessions
+            const previewRaw = si.preview || null;
+            const preview = (previewRaw && typeof previewRaw === 'string' && previewRaw.startsWith('blob:')) ? null : previewRaw;
             return {
               id: si.id,
               file: file || undefined,
               name: si.fileName,
               mime: si.fileType,
-              preview: si.preview || null,
+              preview,
               status: si.status as ItemStatus,
               progress: si.progress || 0,
               stage: (si as any).stage,
@@ -327,17 +359,23 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
     } catch {}
   }, [items, storageKey]);
 
-  // backfill thumbnails for restored items that are videos and missing preview
+  // backfill thumbnails for restored items that are missing preview
   useEffect(() => {
     items.forEach(it => {
-      if (!it.preview && (it.mime || '').startsWith('video/')) {
-        const f = filesRef.current[it.id] || it.file;
-        if (f) scheduleVideoThumb(it.id, f);
+      const f = filesRef.current[it.id] || it.file;
+      if (!it.preview && f) {
+        if ((it.mime || '').startsWith('video/')) {
+          scheduleVideoThumb(it.id, f);
+        } else if ((it.mime || '').startsWith('image/')) {
+          generateImageThumbnail(f).then((dataUrl) => {
+            setItems(prev => prev.map(x => (x.id === it.id ? { ...x, preview: dataUrl } : x)));
+          }).catch(() => {});
+        }
       }
     });
   }, [items]);
 
-  function onFiles(flist: FileList | null) {
+  async function onFiles(flist: FileList | null) {
     if (!flist || flist.length === 0) return;
     setGlobalError(null);
     const newItems: UploadItem[] = [];
@@ -348,9 +386,8 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
       filesRef.current[replaceId] = f;
       setItems(prev => prev.map(it => {
         if (it.id !== replaceId) return it;
-        if (it.preview) URL.revokeObjectURL(it.preview);
-        const preview = f.type.startsWith('image/') ? URL.createObjectURL(f) : null;
-        return { ...it, file: f, name: f.name, mime: f.type, preview, status: 'idle', progress: 0, result: null, error: null };
+        if (it.preview && it.preview.startsWith('blob:')) { try { URL.revokeObjectURL(it.preview); } catch {} }
+        return { ...it, file: f, name: f.name, mime: f.type, preview: null, status: 'idle', progress: 0, result: null, error: null };
       }));
   const composite = pageKey ? `${pageKey}::${replaceId}` : replaceId;
   memoryFilesGlobal[composite] = f;
@@ -358,11 +395,14 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
   replaceTargetId.current = null;
   // async thumbnail for videos
   if (f.type.startsWith('video/')) scheduleVideoThumb(replaceId, f);
+  if (f.type.startsWith('image/')) {
+    try { const dataUrl = await generateImageThumbnail(f); setItems(prev => prev.map(it => (it.id === replaceId ? { ...it, preview: dataUrl } : it))); } catch {}
+  }
   return;
     }
     for (let i = 0; i < flist.length; i++) {
       const f = flist[i];
-      const preview = f.type.startsWith('image/') ? URL.createObjectURL(f) : null;
+      const preview = null;
       const id = `${Date.now()}_${i}_${f.name}`;
       filesRef.current[id] = f;
       const composite = pageKey ? `${pageKey}::${id}` : id;
@@ -380,6 +420,11 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
         error: null,
       });
       if (f.type.startsWith('video/')) scheduleVideoThumb(id, f);
+      if (f.type.startsWith('image/')) {
+        generateImageThumbnail(f).then((dataUrl) => {
+          setItems(prev => prev.map(it => (it.id === id ? { ...it, preview: dataUrl } : it)));
+        }).catch(() => {});
+      }
     }
     setItems(prev => [...prev, ...newItems]);
   }
@@ -412,7 +457,7 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
     setUndoBuf({ item: it, file, index: idx });
     // proceed with removal
     setItems(prev => {
-      if (it.preview) URL.revokeObjectURL(it.preview);
+      if (it.preview && it.preview.startsWith('blob:')) { try { URL.revokeObjectURL(it.preview); } catch {} }
       delete filesRef.current[id];
       const composite = pageKey ? `${pageKey}::${id}` : id;
       delete memoryFilesGlobal[composite];
@@ -434,9 +479,8 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
       memoryFilesGlobal[composite] = file;
       try { persistFile(composite, file); } catch { /* ignore */ }
     }
-    // regenerate preview if image; schedule thumbnail if video
-    const preview = file && file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
-    const restored: UploadItem = { ...item, file: file || item.file, preview, status: item.status };
+    // regenerate previews async
+    const restored: UploadItem = { ...item, file: file || item.file, preview: null, status: item.status };
     setItems(prev => {
       const arr = [...prev];
       const insertAt = Math.min(Math.max(index, 0), arr.length);
@@ -444,6 +488,11 @@ const UploadCard: React.FC<UploadCardProps> = ({ pageKey }) => {
       return arr;
     });
     if (file && file.type.startsWith('video/')) scheduleVideoThumb(item.id, file);
+    if (file && file.type.startsWith('image/')) {
+      generateImageThumbnail(file).then((dataUrl) => {
+        setItems(prev => prev.map(it => (it.id === item.id ? { ...it, preview: dataUrl } : it)));
+      }).catch(() => {});
+    }
     // re-add analysis summary to reports if exists
     try {
       if (item.result?.summary) {

@@ -79,3 +79,26 @@ export async function getPlaybackUrl(assetId: number): Promise<string> {
   const data = await res.json();
   return data.url as string;
 }
+
+// ---- Pages (per-user persistence) ----
+export type PageEntry = { key: string; label: string; icon?: string };
+
+export async function getPages(): Promise<PageEntry[]> {
+  const res = await fetch(`${API_BASE}/api/pages`, { headers: authHeaders() });
+  if (res.status === 401 || res.status === 403) return [];
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  return Array.isArray(data.pages) ? data.pages as PageEntry[] : [];
+}
+
+export async function putPages(pages: PageEntry[]): Promise<PageEntry[]> {
+  const res = await fetch(`${API_BASE}/api/pages`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ pages }),
+  });
+  if (res.status === 401 || res.status === 403) return pages; // no-op when not logged in
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  return Array.isArray(data.pages) ? data.pages as PageEntry[] : pages;
+}

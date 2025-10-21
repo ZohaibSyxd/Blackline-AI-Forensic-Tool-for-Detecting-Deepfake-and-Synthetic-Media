@@ -129,6 +129,14 @@ class AnalyzeResponse(BaseModel):
     probe: dict | None
     summary: dict
 
+class PageEntry(BaseModel):
+    key: str
+    label: str
+    icon: str | None = None
+
+class PagesPayload(BaseModel):
+    pages: list[PageEntry]
+
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
@@ -774,6 +782,49 @@ async def upload_asset(file: UploadFile = File(...), user = Depends(get_current_
         sess.commit()
         sess.refresh(rec)
         return _asset_to_out(rec)
+
+# ------------------------ User Pages Persistence ---------------------------
+@app.get("/api/pages", response_model=PagesPayload)
+def get_pages(user = Depends(get_current_user)):
+    for db in get_db():
+        sess: Session = db
+        row = sess.query(models_db.UserPrefs).filter(models_db.UserPrefs.user_id == user.id).first()
+        if not row or not (row.pages_json or '').strip():
+            return PagesPayload(pages=[])
+        try:
+            data = __import__('json').loads(row.pages_json or '[]')
+        except Exception:
+            data = []
+        # Coerce entries to expected shape
+        pages = []
+        for p in data:
+            if isinstance(p, dict) and isinstance(p.get('key'), str) and isinstance(p.get('label'), str):
+                pages.append(PageEntry(key=p['key'], label=p['label'], icon=p.get('icon')))
+        return PagesPayload(pages=pages)
+
+@app.put("/api/pages", response_model=PagesPayload)
+def put_pages(payload: PagesPayload, user = Depends(get_current_user)):
+    # sanitize input
+    pages = []
+    for p in payload.pages:
+        if not p.key or not p.label:
+            continue
+        pages.append({'key': p.key, 'label': p.label, 'icon': p.icon})
+    txt = __import__('json').dumps(pages)
+    now = int(__import__('time').time())
+    for db in get_db():
+        sess: Session = db
+        row = sess.query(models_db.UserPrefs).filter(models_db.UserPrefs.user_id == user.id).first()
+        if row:
+            row.pages_json = txt
+            row.updated_at = now
+            sess.add(row)
+            sess.commit()
+        else:
+            row = models_db.UserPrefs(user_id=user.id, pages_json=txt, updated_at=now)
+            sess.add(row)
+            sess.commit()
+        return PagesPayload(pages=[PageEntry(**p) for p in pages])
 
 # Convenience root
 @app.get("/")

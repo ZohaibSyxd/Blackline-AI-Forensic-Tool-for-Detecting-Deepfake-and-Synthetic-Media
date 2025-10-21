@@ -90,7 +90,13 @@ export async function refreshUser() {
       const data = await res.json();
       set({ user: data.user });
     } else {
-      set({ user: null, token: null });
+      // Only clear auth on explicit unauthorized/forbidden; keep session for transient errors
+      if (res.status === 401 || res.status === 403) {
+        set({ user: null, token: null });
+      }
+      // otherwise leave current user/token as-is
     }
-  } catch { set({ user: null, token: null }); }
+  } catch {
+    // Network or server error – keep current session as-is
+  }
 }

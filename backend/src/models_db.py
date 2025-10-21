@@ -31,3 +31,14 @@ class Asset(Base):
     created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()), nullable=False)
 
     user = relationship("User")
+
+
+class UserPrefs(Base):
+    __tablename__ = "user_prefs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True, nullable=False)
+    pages_json: Mapped[str] = mapped_column(Text, nullable=True)  # JSON array of {key,label,icon?}
+    updated_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()), nullable=False)
+
+    user = relationship("User")
