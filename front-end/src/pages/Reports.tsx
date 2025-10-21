@@ -141,6 +141,26 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
   const [elaFollowVideo, setElaFollowVideo] = useState<boolean>(true);
   const [elaSelectedIdx, setElaSelectedIdx] = useState<number | null>(null);
   const [elaFramesOverride, setElaFramesOverride] = useState<Array<{ uri: string; time_s?: number|null; index?: number }> | null>(null);
+  // LBP viewer state
+  const [lbpLoading, setLbpLoading] = useState<boolean>(false);
+  const [lbpError, setLbpError] = useState<string | null>(null);
+  const [lbpAction, setLbpAction] = useState<"generate" | "reload" | null>(null);
+  const [lbpStatus, setLbpStatus] = useState<string | null>(null);
+  const [lbpFlash, setLbpFlash] = useState<boolean>(false);
+  const lbpDetailsRef = useRef<HTMLDetailsElement | null>(null);
+  const [lbpFollowVideo, setLbpFollowVideo] = useState<boolean>(true);
+  const [lbpSelectedIdx, setLbpSelectedIdx] = useState<number | null>(null);
+  const [lbpFramesOverride, setLbpFramesOverride] = useState<Array<{ uri: string; time_s?: number|null; index?: number }> | null>(null);
+  // Noise viewer state
+  const [noiseLoading, setNoiseLoading] = useState<boolean>(false);
+  const [noiseError, setNoiseError] = useState<string | null>(null);
+  const [noiseAction, setNoiseAction] = useState<"generate" | "reload" | null>(null);
+  const [noiseStatus, setNoiseStatus] = useState<string | null>(null);
+  const [noiseFlash, setNoiseFlash] = useState<boolean>(false);
+  const noiseDetailsRef = useRef<HTMLDetailsElement | null>(null);
+  const [noiseFollowVideo, setNoiseFollowVideo] = useState<boolean>(true);
+  const [noiseSelectedIdx, setNoiseSelectedIdx] = useState<number | null>(null);
+  const [noiseFramesOverride, setNoiseFramesOverride] = useState<Array<{ uri: string; fft_uri?: string; time_s?: number|null; index?: number; noise_score?: number }>|null>(null);
   // Add state for selected card
   const [selectedCardId, setSelectedCardId] = useState<string | undefined>(undefined);
 
@@ -232,6 +252,7 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
     setVideoTime(0);
     setMediaDuration(null);
     setElaSelectedIdx(null);
+    setLbpSelectedIdx(null);
   }, [selected]);
 
   // Resolve playback URL for the selected item (once per selection)
@@ -479,6 +500,57 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
     return list;
   }, [selected?.id, selected?.analyzedAt, elaFramesOverride]);
 
+  // Memoize LBP frames extracted from selected summary
+  type LBPFrame = { uri: string; time_s?: number|null; index?: number };
+  const lbpFrames: LBPFrame[] = React.useMemo(() => {
+    if (lbpFramesOverride && lbpFramesOverride.length) return lbpFramesOverride as LBPFrame[];
+    if (!selected) return [];
+    const s: any = selected;
+    const grab = (obj: any) => {
+      if (!obj) return { uris: null as string[]|null, frames: null as any[]|null };
+      const directUris = Array.isArray(obj.lbp_uris) ? obj.lbp_uris as string[] : null;
+      const directFrames = Array.isArray(obj.lbp_frames) ? obj.lbp_frames as any[] : null;
+      const nestedUris = Array.isArray(obj.lbp?.uris) ? obj.lbp.uris as string[] : null;
+      const nestedFrames = Array.isArray(obj.lbp?.frames) ? obj.lbp.frames as any[] : null;
+      return { uris: directUris || nestedUris, frames: directFrames || nestedFrames };
+    };
+    const a = grab(s?.summary);
+    const b = grab(s?.raw?.summary);
+    let frames: LBPFrame[] = [];
+    if (a.frames && a.frames.length) frames = a.frames as LBPFrame[];
+    else if (a.uris && a.uris.length) frames = (a.uris as string[]).map((u) => ({ uri: u }));
+    else if (b.frames && b.frames.length) frames = b.frames as LBPFrame[];
+    else if (b.uris && b.uris.length) frames = (b.uris as string[]).map((u) => ({ uri: u }));
+    const seen = new Set<string>();
+    const list = (frames || []).filter((f: any) => !!f && typeof f.uri === 'string' && f.uri.length>0)
+      .filter((f: any) => { if (seen.has(f.uri)) return false; seen.add(f.uri); return true; }) as LBPFrame[];
+    return list;
+  }, [selected?.id, selected?.analyzedAt, lbpFramesOverride]);
+
+  // Memoize Noise frames with metrics
+  type NoiseFrame = { uri: string; fft_uri?: string; time_s?: number|null; index?: number; residual_abs_mean?: number; residual_std?: number; residual_energy?: number; fft_low_ratio?: number; fft_high_ratio?: number; noise_score?: number };
+  const noiseFrames: NoiseFrame[] = React.useMemo(() => {
+    if (noiseFramesOverride && noiseFramesOverride.length) return noiseFramesOverride as NoiseFrame[];
+    if (!selected) return [];
+    const s: any = selected;
+    const grab = (obj: any) => {
+      if (!obj) return { frames: null as any[]|null };
+      const direct = Array.isArray(obj.noise_frames) ? obj.noise_frames as any[] : null;
+      const nested = Array.isArray(obj.noise?.frames) ? obj.noise.frames as any[] : null;
+      return { frames: direct || nested };
+    };
+    const a = grab(s?.summary);
+    const b = grab(s?.raw?.summary);
+    let frames: NoiseFrame[] = [];
+    if (a.frames && a.frames.length) frames = a.frames as NoiseFrame[];
+    else if (b.frames && b.frames.length) frames = b.frames as NoiseFrame[];
+    // Dedup by uri
+    const seen = new Set<string>();
+    const list = (frames || []).filter((f:any)=> !!f && typeof f.uri === 'string' && f.uri.length>0)
+      .filter((f:any)=>{ if (seen.has(f.uri)) return false; seen.add(f.uri); return true; }) as NoiseFrame[];
+    return list;
+  }, [selected?.id, selected?.analyzedAt, noiseFramesOverride]);
+
   // Auto-follow: update current ELA selection based on video time
   useEffect(() => {
     if (!elaFollowVideo) return;
@@ -495,6 +567,40 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
     });
     if (elaSelectedIdx !== bestI) setElaSelectedIdx(bestI);
   }, [videoTime, elaFollowVideo, elaFrames]);
+
+  // Auto-follow for LBP
+  useEffect(() => {
+    if (!lbpFollowVideo) return;
+    if (!lbpFrames.length) return;
+    const withTimes = lbpFrames.filter(x => typeof x.time_s === 'number' && Number.isFinite(x.time_s as any));
+    if (!withTimes.length) return;
+    let bestI = 0; let bestD = Infinity;
+    lbpFrames.forEach((f, i) => {
+      const t: any = f.time_s;
+      if (typeof t === 'number' && Number.isFinite(t)) {
+        const d = Math.abs((t as number) - (videoTime || 0));
+        if (d < bestD) { bestD = d; bestI = i; }
+      }
+    });
+    if (lbpSelectedIdx !== bestI) setLbpSelectedIdx(bestI);
+  }, [videoTime, lbpFollowVideo, lbpFrames]);
+
+  // Auto-follow for Noise
+  useEffect(() => {
+    if (!noiseFollowVideo) return;
+    if (!noiseFrames.length) return;
+    const withTimes = noiseFrames.filter(x => typeof x.time_s === 'number' && Number.isFinite(x.time_s as any));
+    if (!withTimes.length) return;
+    let bestI = 0; let bestD = Infinity;
+    noiseFrames.forEach((f, i) => {
+      const t: any = f.time_s;
+      if (typeof t === 'number' && Number.isFinite(t)) {
+        const d = Math.abs((t as number) - (videoTime || 0));
+        if (d < bestD) { bestD = d; bestI = i; }
+      }
+    });
+    if (noiseSelectedIdx !== bestI) setNoiseSelectedIdx(bestI);
+  }, [videoTime, noiseFollowVideo, noiseFrames]);
 
   return (
     <div className="reports-page">
@@ -729,6 +835,226 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                 );
                               })()}
                               {(() => {
+                                // Noise frames viewer + grid with metrics
+                                const list = noiseFrames;
+                                const assetIdUnknown = (selected as any)?.raw?.asset?.asset_id;
+                                const numericId = ((): number | null => {
+                                  if (assetIdUnknown === undefined || assetIdUnknown === null) return null;
+                                  const n = Number(assetIdUnknown);
+                                  return (Number.isFinite(n) && String(n) === String(assetIdUnknown).trim()) ? n : null;
+                                })();
+                                async function handleGenerateNoise() {
+                                  setNoiseError(null); setNoiseStatus(null); setNoiseAction('generate'); setNoiseLoading(true);
+                                  try {
+                                    const tok = getAuthState().token;
+                                    const headers: Record<string,string> = { 'Content-Type': 'application/json' };
+                                    if (tok) headers['Authorization'] = `Bearer ${tok}`;
+                                    let res: Response;
+                                    if (numericId !== null) {
+                                      res = await fetch(`${API_BASE}/api/noise/generate`, { method: 'POST', headers, body: JSON.stringify({ asset_id: numericId, frames: 12, method: 'both', threshold: 0.6 }) });
+                                    } else {
+                                      const sp = (selected as any)?.raw?.asset?.stored_path;
+                                      const sha = (selected as any)?.raw?.asset?.sha256;
+                                      if (!sp) throw new Error('No asset reference for Noise');
+                                      res = await fetch(`${API_BASE}/api/noise/generate-by-path`, { method: 'POST', headers, body: JSON.stringify({ stored_path: sp, sha256: sha, frames: 12, method: 'both', threshold: 0.6 }) });
+                                    }
+                                    if (!res.ok) throw new Error(await res.text());
+                                    const data = await res.json();
+                                    const listNew = Array.isArray(data.noise_frames) ? data.noise_frames : [];
+                                    const updated = { ...selected } as any;
+                                    updated.summary = { ...(updated.summary || {}), noise_frames: listNew, noise: { frames: listNew, high_indices: data.high_indices, threshold: data.threshold } };
+                                    if ((updated as any).raw && (updated as any).raw.summary) {
+                                      (updated as any).raw.summary = { ...((updated as any).raw.summary || {}), noise_frames: listNew, noise: { frames: listNew, high_indices: data.high_indices, threshold: data.threshold } };
+                                    }
+                                    setNoiseSelectedIdx(0);
+                                    setNoiseFramesOverride(listNew);
+                                    setSelected(updated);
+                                    try {
+                                      upsertAnalysis({ ...(updated as any), summary: updated.summary } as any);
+                                      const list2 = activePageKey ? getAnalysesForPage(activePageKey) : getAllAnalyses();
+                                      setAnalyses(list2);
+                                    } catch {}
+                                    setNoiseStatus(`Generated ${listNew.length} ${listNew.length===1?'noise frame':'noise frames'}`);
+                                    setTimeout(()=> setNoiseStatus(null), 3000);
+                                    try { if (noiseDetailsRef.current) { noiseDetailsRef.current.open = true; } } catch {}
+                                    setNoiseFlash(true); setTimeout(()=> setNoiseFlash(false), 800);
+                                  } catch (e: any) {
+                                    setNoiseError(e?.message || 'Failed to generate noise frames');
+                                  } finally { setNoiseAction(null); setNoiseLoading(false); }
+                                }
+                                async function handleReloadNoise() {
+                                  setNoiseError(null); setNoiseStatus(null); setNoiseAction('reload'); setNoiseLoading(true);
+                                  try {
+                                    const tok = getAuthState().token;
+                                    const headers: Record<string,string> = { };
+                                    if (tok) headers['Authorization'] = `Bearer ${tok}`;
+                                    let res: Response;
+                                    if (numericId !== null) {
+                                      const url = `${API_BASE}/api/noise/list?asset_id=${encodeURIComponent(String(numericId))}`;
+                                      res = await fetch(url, { method: 'GET', headers });
+                                    } else {
+                                      const sp = (selected as any)?.raw?.asset?.stored_path;
+                                      const sha = (selected as any)?.raw?.asset?.sha256;
+                                      if (!sp) throw new Error('No asset reference for Noise reload');
+                                      const qs = new URLSearchParams({ stored_path: String(sp) });
+                                      if (sha) qs.set('sha256', String(sha));
+                                      const url = `${API_BASE}/api/noise/list-by-path?${qs.toString()}`;
+                                      res = await fetch(url, { method: 'GET', headers });
+                                    }
+                                    if (!res.ok) throw new Error(await res.text());
+                                    const data = await res.json();
+                                    const listNew = Array.isArray(data.noise_frames) ? data.noise_frames : [];
+                                    const updated = { ...selected } as any;
+                                    updated.summary = { ...(updated.summary || {}), noise_frames: listNew, noise: { frames: listNew } };
+                                    if ((updated as any).raw && (updated as any).raw.summary) {
+                                      (updated as any).raw.summary = { ...((updated as any).raw.summary || {}), noise_frames: listNew, noise: { frames: listNew } };
+                                    }
+                                    setNoiseSelectedIdx(0);
+                                    setNoiseFramesOverride(listNew);
+                                    setSelected(updated);
+                                    try {
+                                      upsertAnalysis({ ...(updated as any), summary: updated.summary } as any);
+                                      const list2 = activePageKey ? getAnalysesForPage(activePageKey) : getAllAnalyses();
+                                      setAnalyses(list2);
+                                    } catch {}
+                                    setNoiseStatus(listNew.length>0 ? `Loaded ${listNew.length} ${listNew.length===1?'noise frame':'noise frames'}` : 'No noise frames found');
+                                    setTimeout(()=> setNoiseStatus(null), 3000);
+                                    try { if (noiseDetailsRef.current) { noiseDetailsRef.current.open = true; } } catch {}
+                                    if (listNew.length>0) { setNoiseFlash(true); setTimeout(()=> setNoiseFlash(false), 800); }
+                                  } catch (e: any) {
+                                    setNoiseError(e?.message || 'Failed to reload noise frames');
+                                  } finally { setNoiseAction(null); setNoiseLoading(false); }
+                                }
+                                const resolve = (uri: string) => {
+                                  try {
+                                    if (!uri) return uri;
+                                    if (/^(https?:)?\/\//i.test(uri)) return uri;
+                                    if (/^data:/i.test(uri)) return uri;
+                                    const base = String(API_BASE).replace(/\/$/, '');
+                                    const path = String(uri).replace(/^\/+/, '');
+                                    return `${base}/static/${path}`;
+                                  } catch { return uri; }
+                                };
+                                const currentIdx = ((): number => {
+                                  if (noiseSelectedIdx != null) return noiseSelectedIdx;
+                                  if (!list.length) return 0;
+                                  const withTimes = list.filter(x => typeof x.time_s === 'number' && Number.isFinite(x.time_s as any));
+                                  if (noiseFollowVideo && withTimes.length) {
+                                    let bestI = 0; let bestD = Infinity;
+                                    list.forEach((f, i) => {
+                                      const t: any = f.time_s;
+                                      if (typeof t === 'number' && Number.isFinite(t)) {
+                                        const d = Math.abs((t as number) - (videoTime || 0));
+                                        if (d < bestD) { bestD = d; bestI = i; }
+                                      }
+                                    });
+                                    return bestI;
+                                  }
+                                  return 0;
+                                })();
+                                const setAndMaybeSeek = (i: number) => {
+                                  setNoiseSelectedIdx(i);
+                                  const f = list[i];
+                                  const t = (f && typeof f.time_s === 'number' && Number.isFinite(f.time_s as any)) ? (f.time_s as number) : null;
+                                  if (t != null) jumpToTime(t, false);
+                                };
+                                const fmtPct = (v?: number) => typeof v==='number' ? `${Math.round(Math.max(0, Math.min(100, v*100)))}%` : '—';
+                                return (
+                                  <details className="overlay-block" ref={noiseDetailsRef as any}>
+                                    <summary>Noise frames{list.length ? ` (${list.length})` : ''}</summary>
+                                    <div className="ela-toolbar">
+                                      <button className="btn" onClick={handleGenerateNoise} disabled={noiseLoading}>
+                                        {noiseLoading && noiseAction==='generate' ? 'Generating…' : 'Generate noise frames'}
+                                      </button>
+                                      <button className="btn ghost" onClick={handleReloadNoise} disabled={noiseLoading}>
+                                        {noiseLoading && noiseAction==='reload' ? 'Reloading…' : 'Reload'}
+                                      </button>
+                                      {noiseStatus ? <span className="status-pill success" role="status" aria-live="polite">{noiseStatus}</span> : null}
+                                      {noiseError ? <span className="status-pill error" role="status" aria-live="assertive">{noiseError}</span> : null}
+                                    </div>
+                                    {list.length ? (
+                                      <div className={`ela-grid${noiseFlash ? ' ela-updated-flash' : ''}`}>
+                                        {(() => {
+                                          const idx = Math.max(0, Math.min(list.length-1, currentIdx));
+                                          const f = list[idx];
+                                          const src = resolve(f.uri);
+                                          const cap = (() => {
+                                            const parts: string[] = [];
+                                            if (typeof f.time_s === 'number' && Number.isFinite(f.time_s as any)) parts.push(`${(f.time_s as number).toFixed(2)}s`);
+                                            if (typeof f.index === 'number' && Number.isFinite(f.index as any)) parts.push(`#${f.index}`);
+                                            if (typeof f.noise_score === 'number') parts.push(`score ${(f.noise_score*100).toFixed(0)}%`);
+                                            return parts.join(' • ') || `frame ${idx+1}`;
+                                          })();
+                                          const items = list.map((it, i) => {
+                                            let leftPct = 0;
+                                            if (typeof it.time_s === 'number' && Number.isFinite(it.time_s as any) && mediaDuration && mediaDuration > 0) {
+                                              leftPct = Math.max(0, Math.min(100, Math.round(((it.time_s as number) / mediaDuration) * 100)));
+                                            } else {
+                                              leftPct = Math.round((i / Math.max(1, list.length - 1)) * 100);
+                                            }
+                                            return { i, leftPct, score: (typeof it.noise_score==='number'? it.noise_score : undefined) };
+                                          });
+                                          const headLeft = (() => {
+                                            if (mediaDuration && mediaDuration > 0) {
+                                              return Math.max(0, Math.min(100, Math.round(((Math.max(0, videoTime)) / mediaDuration) * 100)));
+                                            }
+                                            return Math.round(((idx) / Math.max(1, list.length - 1)) * 100);
+                                          })();
+                                          return (
+                                            <div className="ela-viewer-block">
+                                              <div className="ela-viewer-head">
+                                                <div className="left"><span className="muted">Noise preview</span></div>
+                                                <div className="right">
+                                                  <label className="chk"><input type="checkbox" checked={noiseFollowVideo} onChange={(e)=>setNoiseFollowVideo(e.currentTarget.checked)} /> Follow video</label>
+                                                  <button className="btn ghost" onClick={()=>{ if (idx>0) setAndMaybeSeek(idx-1); }} disabled={idx<=0}>Prev</button>
+                                                  <button className="btn ghost" onClick={()=>{ if (idx<list.length-1) setAndMaybeSeek(idx+1); }} disabled={idx>=list.length-1}>Next</button>
+                                                  {f.fft_uri ? <a className="btn ghost" href={resolve(f.fft_uri)} target="_blank" rel="noreferrer">FFT</a> : null}
+                                                  <a className="btn ghost" href={src} target="_blank" rel="noreferrer">Open</a>
+                                                </div>
+                                              </div>
+                                              <div className="ela-view">
+                                                <img src={src} alt={`Noise ${cap}`} className="ela-img" />
+                                                <div className="ela-cap">{cap}</div>
+                                              </div>
+                                              <div className="ela-timeline" role="region" aria-label="Noise timeline">
+                                                <div className="ft-base" aria-hidden="true" />
+                                                <div className={`ft-head ft-p${headLeft}`} aria-hidden="true" />
+                                                {items.map(({i, leftPct, score}) => (
+                                                  <button key={i} type="button" className={`ft-mark ft-p${leftPct} ${i===idx?'active':''} ${typeof score==='number' && score>=0.6 ? 'alert' : ''}`} onClick={()=> setAndMaybeSeek(i)} title={typeof score==='number'?`score ${(score*100).toFixed(0)}%`:undefined} />
+                                                ))}
+                                                <div className="ft-axis" aria-hidden="true">
+                                                  <span>0s</span>
+                                                  <span>{mediaDuration ? mediaDuration.toFixed(2)+'s' : ''}</span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          );
+                                        })()}
+                                        {list.map((f, i) => {
+                                          const cap = ((): string => {
+                                            const t = (typeof f.time_s === 'number' && Number.isFinite(f.time_s)) ? `${(f.time_s as number).toFixed(2)}s` : undefined;
+                                            const idx2 = (typeof f.index === 'number' && Number.isFinite(f.index)) ? `#${f.index}` : undefined;
+                                            const sc = (typeof f.noise_score === 'number') ? `score ${(f.noise_score*100).toFixed(0)}%` : undefined;
+                                            return [t, idx2, sc].filter(Boolean).join(' • ') || `frame ${i+1}`;
+                                          })();
+                                          const src = resolve(f.uri);
+                                          return (
+                                            <a key={i} className={`ela-item${typeof f.noise_score==='number' && f.noise_score>=0.6 ? ' alert' : ''}`} href={src} target="_blank" rel="noreferrer" title={cap} onClick={(e)=>{ e.preventDefault(); setAndMaybeSeek(i); }}>
+                                              <figure>
+                                                <img src={src} loading="lazy" alt={cap || 'Noise frame'} />
+                                                <figcaption className="cap">{cap}</figcaption>
+                                              </figure>
+                                            </a>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : (
+                                      <div className="overlay-content"><div className="muted">No noise frames available for this analysis.</div></div>
+                                    )}
+                                  </details>
+                                );
+                              })()}
+                              {(() => {
                                 // ELA frames viewer + grid
                                 const list = elaFrames;
                                 const assetIdUnknown = (selected as any)?.raw?.asset?.asset_id;
@@ -948,6 +1274,230 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                       </div>
                                     ) : (
                                       <div className="overlay-content"><div className="muted">No ELA frames available for this analysis.</div></div>
+                                    )}
+                                  </details>
+                                );
+                              })()}
+                              {(() => {
+                                // LBP frames viewer + grid
+                                const list = lbpFrames;
+                                const assetIdUnknown = (selected as any)?.raw?.asset?.asset_id;
+                                const numericId = ((): number | null => {
+                                  if (assetIdUnknown === undefined || assetIdUnknown === null) return null;
+                                  const n = Number(assetIdUnknown);
+                                  return (Number.isFinite(n) && String(n) === String(assetIdUnknown).trim()) ? n : null;
+                                })();
+                                async function handleGenerateLBP() {
+                                  setLbpError(null); setLbpStatus(null); setLbpAction('generate'); setLbpLoading(true);
+                                  try {
+                                    const tok = getAuthState().token;
+                                    const headers: Record<string,string> = { 'Content-Type': 'application/json' };
+                                    if (tok) headers['Authorization'] = `Bearer ${tok}`;
+                                    let res: Response;
+                                    if (numericId !== null) {
+                                      res = await fetch(`${API_BASE}/api/lbp/generate`, {
+                                        method: 'POST', headers,
+                                        body: JSON.stringify({ asset_id: numericId, frames: 12, radius: 1 }),
+                                      });
+                                    } else {
+                                      const sp = (selected as any)?.raw?.asset?.stored_path;
+                                      const sha = (selected as any)?.raw?.asset?.sha256;
+                                      if (!sp) throw new Error('No asset reference for LBP');
+                                      res = await fetch(`${API_BASE}/api/lbp/generate-by-path`, {
+                                        method: 'POST', headers,
+                                        body: JSON.stringify({ stored_path: sp, sha256: sha, frames: 12, radius: 1 }),
+                                      });
+                                    }
+                                    if (!res.ok) throw new Error(await res.text());
+                                    const data = await res.json();
+                                    const listNew = Array.isArray(data.lbp_frames) ? data.lbp_frames : [];
+                                    const updated = { ...selected } as any;
+                                    const uris = (listNew || []).map((f:any)=>f && f.uri).filter(Boolean);
+                                    updated.summary = { ...(updated.summary || {}), lbp_frames: listNew, lbp_uris: uris, lbp: { frames: listNew, uris } };
+                                    if ((updated as any).raw && (updated as any).raw.summary) {
+                                      (updated as any).raw.summary = { ...((updated as any).raw.summary || {}), lbp_frames: listNew, lbp_uris: uris, lbp: { frames: listNew, uris } };
+                                    }
+                                    setLbpSelectedIdx(0);
+                                    setLbpFramesOverride(listNew);
+                                    setSelected(updated);
+                                    try {
+                                      upsertAnalysis({ ...(updated as any), summary: updated.summary } as any);
+                                      const list2 = activePageKey ? getAnalysesForPage(activePageKey) : getAllAnalyses();
+                                      setAnalyses(list2);
+                                    } catch {}
+                                    setLbpStatus(`Generated ${listNew.length} ${listNew.length===1?'LBP frame':'LBP frames'}`);
+                                    setTimeout(()=> setLbpStatus(null), 3000);
+                                    try { if (lbpDetailsRef.current) { lbpDetailsRef.current.open = true; } } catch {}
+                                    setLbpFlash(true); setTimeout(()=> setLbpFlash(false), 800);
+                                  } catch (e: any) {
+                                    setLbpError(e?.message || 'Failed to generate LBP frames');
+                                  } finally { setLbpAction(null); setLbpLoading(false); }
+                                }
+                                async function handleReloadLBP() {
+                                  setLbpError(null); setLbpStatus(null); setLbpAction('reload'); setLbpLoading(true);
+                                  try {
+                                    const tok = getAuthState().token;
+                                    const headers: Record<string,string> = { };
+                                    if (tok) headers['Authorization'] = `Bearer ${tok}`;
+                                    let res: Response;
+                                    if (numericId !== null) {
+                                      const url = `${API_BASE}/api/lbp/list?asset_id=${encodeURIComponent(String(numericId))}`;
+                                      res = await fetch(url, { method: 'GET', headers });
+                                    } else {
+                                      const sp = (selected as any)?.raw?.asset?.stored_path;
+                                      const sha = (selected as any)?.raw?.asset?.sha256;
+                                      if (!sp) throw new Error('No asset reference for LBP reload');
+                                      const qs = new URLSearchParams({ stored_path: String(sp) });
+                                      if (sha) qs.set('sha256', String(sha));
+                                      const url = `${API_BASE}/api/lbp/list-by-path?${qs.toString()}`;
+                                      res = await fetch(url, { method: 'GET', headers });
+                                    }
+                                    if (!res.ok) throw new Error(await res.text());
+                                    const data = await res.json();
+                                    const listNew = Array.isArray(data.lbp_frames) ? data.lbp_frames : [];
+                                    const updated = { ...selected } as any;
+                                    const uris = (listNew || []).map((f:any)=>f && f.uri).filter(Boolean);
+                                    updated.summary = { ...(updated.summary || {}), lbp_frames: listNew, lbp_uris: uris, lbp: { frames: listNew, uris } };
+                                    if ((updated as any).raw && (updated as any).raw.summary) {
+                                      (updated as any).raw.summary = { ...((updated as any).raw.summary || {}), lbp_frames: listNew, lbp_uris: uris, lbp: { frames: listNew, uris } };
+                                    }
+                                    setLbpSelectedIdx(0);
+                                    setLbpFramesOverride(listNew);
+                                    setSelected(updated);
+                                    try {
+                                      upsertAnalysis({ ...(updated as any), summary: updated.summary } as any);
+                                      const list2 = activePageKey ? getAnalysesForPage(activePageKey) : getAllAnalyses();
+                                      setAnalyses(list2);
+                                    } catch {}
+                                    setLbpStatus(listNew.length>0 ? `Loaded ${listNew.length} ${listNew.length===1?'LBP frame':'LBP frames'}` : 'No LBP frames found');
+                                    setTimeout(()=> setLbpStatus(null), 3000);
+                                    try { if (lbpDetailsRef.current) { lbpDetailsRef.current.open = true; } } catch {}
+                                    if (listNew.length>0) { setLbpFlash(true); setTimeout(()=> setLbpFlash(false), 800); }
+                                  } catch (e: any) {
+                                    setLbpError(e?.message || 'Failed to reload LBP frames');
+                                  } finally { setLbpAction(null); setLbpLoading(false); }
+                                }
+                                const resolve = (uri: string) => {
+                                  try {
+                                    if (!uri) return uri;
+                                    if (/^(https?:)?\/\//i.test(uri)) return uri;
+                                    if (/^data:/i.test(uri)) return uri;
+                                    const base = String(API_BASE).replace(/\/$/, '');
+                                    const path = String(uri).replace(/^\/+/, '');
+                                    return `${base}/static/${path}`;
+                                  } catch { return uri; }
+                                };
+                                const currentIdx = ((): number => {
+                                  if (lbpSelectedIdx != null) return lbpSelectedIdx;
+                                  if (!list.length) return 0;
+                                  const withTimes = list.filter(x => typeof x.time_s === 'number' && Number.isFinite(x.time_s as any));
+                                  if (lbpFollowVideo && withTimes.length) {
+                                    let bestI = 0; let bestD = Infinity;
+                                    list.forEach((f, i) => {
+                                      const t: any = f.time_s;
+                                      if (typeof t === 'number' && Number.isFinite(t)) {
+                                        const d = Math.abs((t as number) - (videoTime || 0));
+                                        if (d < bestD) { bestD = d; bestI = i; }
+                                      }
+                                    });
+                                    return bestI;
+                                  }
+                                  return 0;
+                                })();
+                                const setAndMaybeSeek = (i: number) => {
+                                  setLbpSelectedIdx(i);
+                                  const f = list[i];
+                                  const t = (f && typeof f.time_s === 'number' && Number.isFinite(f.time_s as any)) ? (f.time_s as number) : null;
+                                  if (t != null) jumpToTime(t, false);
+                                };
+                                return (
+                                  <details className="overlay-block" ref={lbpDetailsRef as any}>
+                                    <summary>LBP frames{list.length ? ` (${list.length})` : ''}</summary>
+                                    <div className="ela-toolbar">
+                                      <button className="btn" onClick={handleGenerateLBP} disabled={lbpLoading}>
+                                        {lbpLoading && lbpAction==='generate' ? 'Generating…' : 'Generate LBP frames'}
+                                      </button>
+                                      <button className="btn ghost" onClick={handleReloadLBP} disabled={lbpLoading}>
+                                        {lbpLoading && lbpAction==='reload' ? 'Reloading…' : 'Reload'}
+                                      </button>
+                                      {lbpStatus ? <span className="status-pill success" role="status" aria-live="polite">{lbpStatus}</span> : null}
+                                      {lbpError ? <span className="status-pill error" role="status" aria-live="assertive">{lbpError}</span> : null}
+                                    </div>
+                                    {list.length ? (
+                                      <div className={`ela-grid${lbpFlash ? ' ela-updated-flash' : ''}`}>
+                                        {(() => {
+                                          const idx = Math.max(0, Math.min(list.length-1, currentIdx));
+                                          const f = list[idx];
+                                          const src = resolve(f.uri);
+                                          const cap = (() => {
+                                            const parts: string[] = [];
+                                            if (typeof f.time_s === 'number' && Number.isFinite(f.time_s as any)) parts.push(`${(f.time_s as number).toFixed(2)}s`);
+                                            if (typeof f.index === 'number' && Number.isFinite(f.index as any)) parts.push(`#${f.index}`);
+                                            return parts.join(' • ') || `frame ${idx+1}`;
+                                          })();
+                                          const items = list.map((it, i) => {
+                                            let leftPct = 0;
+                                            if (typeof it.time_s === 'number' && Number.isFinite(it.time_s as any) && mediaDuration && mediaDuration > 0) {
+                                              leftPct = Math.max(0, Math.min(100, Math.round(((it.time_s as number) / mediaDuration) * 100)));
+                                            } else {
+                                              leftPct = Math.round((i / Math.max(1, list.length - 1)) * 100);
+                                            }
+                                            return { i, leftPct };
+                                          });
+                                          const headLeft = (() => {
+                                            if (mediaDuration && mediaDuration > 0) {
+                                              return Math.max(0, Math.min(100, Math.round(((Math.max(0, videoTime)) / mediaDuration) * 100)));
+                                            }
+                                            return Math.round(((idx) / Math.max(1, list.length - 1)) * 100);
+                                          })();
+                                          return (
+                                            <div className="ela-viewer-block">
+                                              <div className="ela-viewer-head">
+                                                <div className="left"><span className="muted">LBP preview</span></div>
+                                                <div className="right">
+                                                  <label className="chk"><input type="checkbox" checked={lbpFollowVideo} onChange={(e)=>setLbpFollowVideo(e.currentTarget.checked)} /> Follow video</label>
+                                                  <button className="btn ghost" onClick={()=>{ if (idx>0) setAndMaybeSeek(idx-1); }} disabled={idx<=0}>Prev</button>
+                                                  <button className="btn ghost" onClick={()=>{ if (idx<list.length-1) setAndMaybeSeek(idx+1); }} disabled={idx>=list.length-1}>Next</button>
+                                                  <a className="btn ghost" href={src} target="_blank" rel="noreferrer">Open</a>
+                                                </div>
+                                              </div>
+                                              <div className="ela-view">
+                                                <img src={src} alt={`LBP ${cap}`} className="ela-img" />
+                                                <div className="ela-cap">{cap}</div>
+                                              </div>
+                                              <div className="ela-timeline" role="region" aria-label="LBP timeline">
+                                                <div className="ft-base" aria-hidden="true" />
+                                                <div className={`ft-head ft-p${headLeft}`} aria-hidden="true" />
+                                                {items.map(({i, leftPct}) => (
+                                                  <button key={i} type="button" className={`ft-mark ft-p${leftPct} ${i===idx?'active':''}`} onClick={()=> setAndMaybeSeek(i)} />
+                                                ))}
+                                                <div className="ft-axis" aria-hidden="true">
+                                                  <span>0s</span>
+                                                  <span>{mediaDuration ? mediaDuration.toFixed(2)+'s' : ''}</span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          );
+                                        })()}
+                                        {list.map((f, i) => {
+                                          const cap = ((): string => {
+                                            const t = (typeof f.time_s === 'number' && Number.isFinite(f.time_s)) ? `${(f.time_s as number).toFixed(2)}s` : undefined;
+                                            const idx2 = (typeof f.index === 'number' && Number.isFinite(f.index)) ? `#${f.index}` : undefined;
+                                            return t ? (idx2 ? `${t} • ${idx2}` : t) : (idx2 || `frame ${i+1}`);
+                                          })();
+                                          const src = resolve(f.uri);
+                                          return (
+                                            <a key={i} className="ela-item" href={src} target="_blank" rel="noreferrer" title={cap} onClick={(e)=>{ e.preventDefault(); setAndMaybeSeek(i); }}>
+                                              <figure>
+                                                <img src={src} loading="lazy" alt={cap || 'LBP frame'} />
+                                                <figcaption className="cap">{cap}</figcaption>
+                                              </figure>
+                                            </a>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : (
+                                      <div className="overlay-content"><div className="muted">No LBP frames available for this analysis.</div></div>
                                     )}
                                   </details>
                                 );

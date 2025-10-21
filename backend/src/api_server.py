@@ -436,6 +436,710 @@ def list_ela_frames(asset_id: int, user = Depends(get_current_user), db: Session
     items.sort(key=lambda d: (d.get("index") is None, d.get("index", 0), d.get("uri")))
     return {"ela_frames": items, "count": len(items)}
 
+# -------------------------- LBP Frames Generation --------------------------
+class LBPGenerateReq(BaseModel):
+    asset_id: int
+    frames: int | None = 12
+    radius: int | None = 1
+
+@app.post("/api/lbp/generate")
+def generate_lbp_frames(req: LBPGenerateReq, user = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Generate Local Binary Pattern (LBP) frames for an asset.
+    - For videos: sample N frames uniformly and compute LBP for each.
+    - For images: compute a single LBP image.
+
+    Returns:
+      { lbp_frames: [{ uri, time_s?, index? }], count: int }
+    Where `uri` is relative to the /static mount (DERIVED_DIR).
+    """
+    import cv2  # type: ignore
+    import numpy as np  # type: ignore
+    from PIL import Image
+
+    # Lookup asset and authorization
+    asset = db.query(models_db.Asset).filter(models_db.Asset.id == req.asset_id, models_db.Asset.user_id == user.id).one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    # Resolve path (local or remote)
+    stored_path = asset.stored_path
+    abspath = None
+    temp_download = None
+    if stored_path:
+        abspath = RAW_ROOT / stored_path
+        if not abspath.exists():
+            if asset.remote_key:
+                try:
+                    temp_download = STORAGE.download_to_temp(asset.remote_key)
+                    abspath = temp_download
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"Failed to retrieve remote asset: {e}")
+            else:
+                raise HTTPException(status_code=404, detail="Stored file missing")
+    elif asset.remote_key:
+        try:
+            temp_download = STORAGE.download_to_temp(asset.remote_key)
+            abspath = temp_download
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to retrieve remote asset: {e}")
+    else:
+        raise HTTPException(status_code=400, detail="Asset has no stored path")
+
+    # Output directory
+    key = asset.sha256 or f"asset_{asset.id}"
+    out_dir = DERIVED_DIR / "lbp" / key
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    def _lbp_image_from_gray(gray: np.ndarray, radius: int = 1) -> np.ndarray:
+        """Compute basic 8-neighbor LBP code image for a grayscale uint8 array.
+        Returns an 8-bit image visualizing the LBP codes (0..255).
+        """
+        # Pad image to handle borders
+        r = max(1, int(radius))
+        g = gray.astype(np.uint8)
+        h, w = g.shape[:2]
+        # Create shifted neighbors
+        # Offsets in clockwise order starting at (-r, -r)
+        offsets = [
+            (-r, -r), (0, -r), (r, -r),
+            (r, 0), (r, r), (0, r),
+            (-r, r), (-r, 0)
+        ]
+        # Build binary pattern
+        center = g
+        acc = np.zeros_like(center, dtype=np.uint16)
+        for bit, (dx, dy) in enumerate(offsets):
+            x0 = max(0, dx)
+            x1 = h + min(0, dx)
+            y0 = max(0, dy)
+            y1 = w + min(0, dy)
+            c_slice = center[x0:x1, y0:y1]
+            n_slice = center[x0-dx:x1-dx, y0-dy:y1-dy]
+            # Compare neighbor >= center => set bit
+            mask = (n_slice >= c_slice).astype(np.uint16)
+            acc[x0:x1, y0:y1] |= (mask << bit)
+        # Scale to 0..255 (already 0..255 range due to 8 bits)
+        return acc.astype(np.uint8)
+
+    frames_target = int(req.frames or 12)
+    radius = int(req.radius or 1)
+    lbp_items: list[dict] = []
+    try:
+        mime = (asset.mime or '').lower()
+        if mime.startswith('video/'):
+            cap = cv2.VideoCapture(str(abspath))
+            if not cap.isOpened():
+                raise HTTPException(status_code=500, detail="Failed to open video for LBP")
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+            n = max(1, min(frames_target, total if total > 0 else frames_target))
+            indices = []
+            if total and total > 0:
+                for i in range(n):
+                    idx = int(round((i + 0.5) * (total / n)))
+                    idx = max(0, min(total - 1, idx))
+                    indices.append(idx)
+            else:
+                indices = list(range(n))
+            used = set()
+            for idx in indices:
+                if idx in used: continue
+                used.add(idx)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    continue
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                lbp = _lbp_image_from_gray(gray, radius=radius)
+                # Colorize slightly for visual separation (apply colormap)
+                colored = cv2.applyColorMap(lbp, cv2.COLORMAP_MAGMA)
+                t = (idx / fps) if (fps and fps > 0) else None
+                name = f"f_{idx:06d}.png"
+                out_path = out_dir / name
+                ok = cv2.imwrite(str(out_path), colored)
+                if not ok:
+                    continue
+                lbp_items.append({
+                    "uri": f"lbp/{key}/{name}",
+                    "time_s": (float(t) if t is not None else None),
+                    "index": int(idx),
+                })
+            cap.release()
+        else:
+            # Treat as image
+            # Use PIL to read cross-format, then convert to gray
+            pil = Image.open(str(abspath)).convert('L')
+            gray = np.array(pil, dtype=np.uint8)
+            lbp = _lbp_image_from_gray(gray, radius=radius)
+            import cv2 as _cv
+            colored = _cv.applyColorMap(lbp, _cv.COLORMAP_MAGMA)
+            name = Path(stored_path).name
+            stem = Path(name).stem
+            out_path = out_dir / f"{stem}_lbp.png"
+            _cv.imwrite(str(out_path), colored)
+            lbp_items.append({
+                "uri": f"lbp/{key}/{out_path.name}",
+                "time_s": None,
+                "index": None,
+            })
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LBP generation failed: {e}")
+    finally:
+        try:
+            if temp_download and Path(temp_download).exists():
+                Path(temp_download).unlink()
+        except Exception:
+            pass
+
+    return { "lbp_frames": lbp_items, "count": len(lbp_items) }
+
+# List LBP frames for an asset
+@app.get("/api/lbp/list")
+def list_lbp_frames(asset_id: int, user = Depends(get_current_user), db: Session = Depends(get_db)):
+    import re
+    asset = db.query(models_db.Asset).filter(models_db.Asset.id == asset_id, models_db.Asset.user_id == user.id).one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    key = (asset.sha256 or f"asset_{asset.id}")
+    out_dir = DERIVED_DIR / "lbp" / key
+    if not out_dir.exists():
+        return {"lbp_frames": [], "count": 0}
+    items: list[dict] = []
+    pat = re.compile(r"^f_(\d+)\.png$", re.IGNORECASE)
+    for p in sorted(out_dir.glob("*.png")):
+        name = p.name
+        m = pat.match(name)
+        idx = int(m.group(1)) if m else None
+        items.append({
+            "uri": f"lbp/{key}/{name}",
+            "time_s": None,
+            "index": idx,
+        })
+    items.sort(key=lambda d: (d.get("index") is None, d.get("index", 0), d.get("uri")))
+    return {"lbp_frames": items, "count": len(items)}
+
+# Fallback variants: by stored_path
+class LBPGenerateByPathReq(BaseModel):
+    stored_path: str
+    sha256: str | None = None
+    frames: int | None = 12
+    radius: int | None = 1
+
+@app.post("/api/lbp/generate-by-path")
+def generate_lbp_frames_by_path(req: LBPGenerateByPathReq, user = Depends(get_current_user)):
+    import cv2  # type: ignore
+    import numpy as np  # type: ignore
+    from PIL import Image
+    from pathlib import Path as _P
+
+    # Resolve path under RAW_ROOT
+    try:
+        sp = (req.stored_path or "").lstrip("/")
+        if not sp:
+            raise HTTPException(status_code=400, detail="stored_path required")
+        abspath = (RAW_ROOT / sp).resolve()
+        root = RAW_ROOT.resolve()
+        if not str(abspath).startswith(str(root)):
+            raise HTTPException(status_code=400, detail="Invalid stored_path")
+        if not abspath.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Bad stored_path: {e}")
+
+    parts = _P(sp).parts
+    key = (req.sha256 or (parts[0] if parts else "file"))
+    out_dir = DERIVED_DIR / "lbp" / key
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    def _lbp_image_from_gray(gray: np.ndarray, radius: int = 1) -> np.ndarray:
+        r = max(1, int(radius))
+        g = gray.astype(np.uint8)
+        h, w = g.shape[:2]
+        offsets = [(-r,-r),(0,-r),(r,-r),(r,0),(r,r),(0,r),(-r,r),(-r,0)]
+        center = g
+        acc = np.zeros_like(center, dtype=np.uint16)
+        for bit, (dx, dy) in enumerate(offsets):
+            x0 = max(0, dx); x1 = h + min(0, dx)
+            y0 = max(0, dy); y1 = w + min(0, dy)
+            c_slice = center[x0:x1, y0:y1]
+            n_slice = center[x0-dx:x1-dx, y0-dy:y1-dy]
+            mask = (n_slice >= c_slice).astype(np.uint16)
+            acc[x0:x1, y0:y1] |= (mask << bit)
+        return acc.astype(np.uint8)
+
+    frames_target = int(req.frames or 12)
+    radius = int(req.radius or 1)
+    lbp_items: list[dict] = []
+    try:
+        ext = abspath.suffix.lower().strip('.')
+        is_video = ext in {"mp4","mov","mkv","avi","webm","m4v"}
+        if is_video:
+            cap = cv2.VideoCapture(str(abspath))
+            if not cap.isOpened():
+                raise HTTPException(status_code=500, detail="Failed to open video for LBP")
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+            n = max(1, min(frames_target, total if total > 0 else frames_target))
+            indices = []
+            if total and total > 0:
+                for i in range(n):
+                    idx = int(round((i + 0.5) * (total / n)))
+                    idx = max(0, min(total - 1, idx))
+                    indices.append(idx)
+            else:
+                indices = list(range(n))
+            used = set()
+            for idx in indices:
+                if idx in used: continue
+                used.add(idx)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    continue
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                lbp = _lbp_image_from_gray(gray, radius=radius)
+                colored = cv2.applyColorMap(lbp, cv2.COLORMAP_MAGMA)
+                t = (idx / fps) if (fps and fps > 0) else None
+                name = f"f_{idx:06d}.png"
+                out_path = out_dir / name
+                ok = cv2.imwrite(str(out_path), colored)
+                if not ok:
+                    continue
+                lbp_items.append({"uri": f"lbp/{key}/{name}", "time_s": (float(t) if t is not None else None), "index": int(idx)})
+            cap.release()
+        else:
+            from PIL import Image as _Image
+            gray = _Image.open(str(abspath)).convert('L')
+            import numpy as _np
+            arr = _np.array(gray, dtype=_np.uint8)
+            lbp = _lbp_image_from_gray(arr, radius=radius)
+            import cv2 as _cv
+            colored = _cv.applyColorMap(lbp, _cv.COLORMAP_MAGMA)
+            stem = _P(abspath.name).stem
+            out_path = out_dir / f"{stem}_lbp.png"
+            _cv.imwrite(str(out_path), colored)
+            lbp_items.append({"uri": f"lbp/{key}/{out_path.name}", "time_s": None, "index": None})
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LBP generation failed: {e}")
+
+    return {"lbp_frames": lbp_items, "count": len(lbp_items)}
+
+@app.get("/api/lbp/list-by-path")
+def list_lbp_frames_by_path(stored_path: str, sha256: str | None = None, user = Depends(get_current_user)):
+    import re
+    from pathlib import Path as _P
+    sp = (stored_path or "").lstrip("/")
+    if not sp:
+        raise HTTPException(status_code=400, detail="stored_path required")
+    parts = _P(sp).parts
+    key = (sha256 or (parts[0] if parts else "file"))
+    out_dir = DERIVED_DIR / "lbp" / key
+    if not out_dir.exists():
+        return {"lbp_frames": [], "count": 0}
+    items: list[dict] = []
+    pat = re.compile(r"^f_(\d+)\.png$", re.IGNORECASE)
+    for p in sorted(out_dir.glob("*.png")):
+        name = p.name
+        m = pat.match(name)
+        idx = int(m.group(1)) if m else None
+        items.append({
+            "uri": f"lbp/{key}/{name}",
+            "time_s": None,
+            "index": idx,
+        })
+    items.sort(key=lambda d: (d.get("index") is None, d.get("index", 0), d.get("uri")))
+    return {"lbp_frames": items, "count": len(items)}
+
+# -------------------------- Noise Frames Generation ------------------------
+class NoiseGenerateReq(BaseModel):
+    asset_id: int
+    frames: int | None = 12
+    method: str | None = "both"  # residual | fft | both
+    threshold: float | None = 0.6  # high-confidence threshold on noise_score
+
+@app.post("/api/noise/generate")
+def generate_noise_frames(req: NoiseGenerateReq, user = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Generate noise residual overlays and FFT overlays for sampled frames.
+    Returns per-frame noise metrics and a simple noise_score (0..1) with high-confidence indices.
+
+    Response: { noise_frames: [{ uri, fft_uri?, time_s?, index?, residual_abs_mean, residual_std, residual_energy, fft_low_ratio, fft_high_ratio, noise_score }], count, high_indices, threshold }
+    """
+    import cv2  # type: ignore
+    import numpy as np  # type: ignore
+    import json, time
+    from PIL import Image
+
+    # Auth + resolve file
+    asset = db.query(models_db.Asset).filter(models_db.Asset.id == req.asset_id, models_db.Asset.user_id == user.id).one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    stored_path = asset.stored_path
+    abspath = None
+    temp_download = None
+    if stored_path:
+        abspath = RAW_ROOT / stored_path
+        if not abspath.exists():
+            if asset.remote_key:
+                try:
+                    temp_download = STORAGE.download_to_temp(asset.remote_key)
+                    abspath = temp_download
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"Failed to retrieve remote asset: {e}")
+            else:
+                raise HTTPException(status_code=404, detail="Stored file missing")
+    elif asset.remote_key:
+        try:
+            temp_download = STORAGE.download_to_temp(asset.remote_key)
+            abspath = temp_download
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to retrieve remote asset: {e}")
+    else:
+        raise HTTPException(status_code=400, detail="Asset has no stored path")
+
+    key = asset.sha256 or f"asset_{asset.id}"
+    out_resid = DERIVED_DIR / "noise" / key
+    out_fft = DERIVED_DIR / "noise_fft" / key
+    out_resid.mkdir(parents=True, exist_ok=True)
+    out_fft.mkdir(parents=True, exist_ok=True)
+    meta_path = out_resid / "meta.json"
+
+    def _noise_metrics_from_gray(gray: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict]:
+        # Residual via Gaussian blur subtraction
+        g = gray.astype(np.float32)
+        blur = cv2.GaussianBlur(g, (0,0), sigmaX=1.0, sigmaY=1.0)
+        resid = g - blur
+        resid_abs = np.abs(resid)
+        # Metrics
+        abs_mean = float(resid_abs.mean())
+        std = float(resid.std())
+        energy = float(np.sqrt((resid**2).mean()))
+        # FFT energy ratios
+        f = np.fft.fft2(g)
+        fshift = np.fft.fftshift(f)
+        mag = np.log(1+np.abs(fshift))
+        h, w = mag.shape
+        cy, cx = h//2, w//2
+        r = int(min(h,w) * 0.12)  # radius for low-frequency circle ~12%
+        yy, xx = np.ogrid[:h, :w]
+        mask_low = (yy-cy)**2 + (xx-cx)**2 <= r*r
+        low = float(mag[mask_low].sum())
+        total = float(mag.sum()) + 1e-6
+        low_ratio = max(0.0, min(1.0, low/total))
+        high_ratio = max(0.0, min(1.0, 1.0 - low_ratio))
+        # score: emphasize high-frequency ratio and residual energy (normalized by 255)
+        score = max(0.0, min(1.0, 0.5*high_ratio + 0.5*min(1.0, energy/60.0)))
+        # Overlays for visualization
+        resid_vis = (np.clip(resid_abs * (255.0/np.maximum(1.0, resid_abs.mean()*4.0)), 0, 255)).astype(np.uint8)
+        resid_cm = cv2.applyColorMap(resid_vis, cv2.COLORMAP_TWILIGHT)
+        mag_norm = (np.clip((mag/np.max(mag)) * 255.0, 0, 255)).astype(np.uint8)
+        fft_cm = cv2.applyColorMap(mag_norm, cv2.COLORMAP_INFERNO)
+        metrics = {
+            "residual_abs_mean": abs_mean,
+            "residual_std": std,
+            "residual_energy": energy,
+            "fft_low_ratio": low_ratio,
+            "fft_high_ratio": high_ratio,
+            "noise_score": score,
+        }
+        return resid_cm, fft_cm, metrics
+
+    frames_target = int(req.frames or 12)
+    method = (req.method or "both").lower()
+    threshold = float(req.threshold or 0.6)
+    items: list[dict] = []
+    try:
+        mime = (asset.mime or '').lower()
+        if mime.startswith('video/'):
+            cap = cv2.VideoCapture(str(abspath))
+            if not cap.isOpened():
+                raise HTTPException(status_code=500, detail="Failed to open video for noise")
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+            n = max(1, min(frames_target, total if total > 0 else frames_target))
+            indices = []
+            if total and total > 0:
+                for i in range(n):
+                    idx = int(round((i + 0.5) * (total / n)))
+                    idx = max(0, min(total - 1, idx))
+                    indices.append(idx)
+            else:
+                indices = list(range(n))
+            used = set()
+            for idx in indices:
+                if idx in used: continue
+                used.add(idx)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    continue
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                resid_img, fft_img, m = _noise_metrics_from_gray(gray)
+                t = (idx / fps) if (fps and fps > 0) else None
+                name = f"f_{idx:06d}.png"
+                resid_path = out_resid / name
+                fft_path = out_fft / name
+                # Save overlays per requested method
+                if method in ("residual","both"):
+                    cv2.imwrite(str(resid_path), resid_img)
+                if method in ("fft","both"):
+                    cv2.imwrite(str(fft_path), fft_img)
+                items.append({
+                    "uri": f"noise/{key}/{name}",
+                    "fft_uri": f"noise_fft/{key}/{name}",
+                    "time_s": (float(t) if t is not None else None),
+                    "index": int(idx),
+                    **m,
+                })
+            cap.release()
+        else:
+            pil = Image.open(str(abspath)).convert('L')
+            import numpy as _np
+            gray = _np.array(pil, dtype=_np.uint8)
+            resid_img, fft_img, m = _noise_metrics_from_gray(gray)
+            name = Path(stored_path).name
+            stem = Path(name).stem
+            resid_path = out_resid / f"{stem}_noise.png"
+            fft_path = out_fft / f"{stem}_noise_fft.png"
+            if method in ("residual","both"):
+                cv2.imwrite(str(resid_path), resid_img)
+            if method in ("fft","both"):
+                cv2.imwrite(str(fft_path), fft_img)
+            items.append({
+                "uri": f"noise/{key}/{resid_path.name}",
+                "fft_uri": f"noise_fft/{key}/{fft_path.name}",
+                "time_s": None,
+                "index": None,
+                **m,
+            })
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Noise generation failed: {e}")
+    finally:
+        try:
+            if temp_download and Path(temp_download).exists():
+                Path(temp_download).unlink()
+        except Exception:
+            pass
+
+    # Persist metadata for quick listing
+    try:
+        meta = {"frames": items, "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    except Exception:
+        pass
+    high = [it.get("index") for it in items if (it.get("noise_score") or 0) >= threshold and it.get("index") is not None]
+    return {"noise_frames": items, "count": len(items), "high_indices": high, "threshold": threshold}
+
+@app.get("/api/noise/list")
+def list_noise_frames(asset_id: int, user = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return any noise frames and metrics for the asset if previously generated (reads meta.json)."""
+    import json, re
+    asset = db.query(models_db.Asset).filter(models_db.Asset.id == asset_id, models_db.Asset.user_id == user.id).one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    key = (asset.sha256 or f"asset_{asset.id}")
+    out_resid = DERIVED_DIR / "noise" / key
+    meta_path = out_resid / "meta.json"
+    if meta_path.exists():
+        try:
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+            frames = data.get("frames") or []
+            return {"noise_frames": frames, "count": len(frames)}
+        except Exception:
+            pass
+    # Fallback: build from file list without metrics
+    items: list[dict] = []
+    if not out_resid.exists():
+        return {"noise_frames": [], "count": 0}
+    pat = re.compile(r"^f_(\d+)\.png$", re.IGNORECASE)
+    for p in sorted(out_resid.glob("*.png")):
+        name = p.name
+        m = pat.match(name)
+        idx = int(m.group(1)) if m else None
+        items.append({"uri": f"noise/{key}/{name}", "fft_uri": f"noise_fft/{key}/{name}", "time_s": None, "index": idx})
+    items.sort(key=lambda d: (d.get("index") is None, d.get("index", 0), d.get("uri")))
+    return {"noise_frames": items, "count": len(items)}
+
+class NoiseGenerateByPathReq(BaseModel):
+    stored_path: str
+    sha256: str | None = None
+    frames: int | None = 12
+    method: str | None = "both"
+    threshold: float | None = 0.6
+
+@app.post("/api/noise/generate-by-path")
+def generate_noise_frames_by_path(req: NoiseGenerateByPathReq, user = Depends(get_current_user)):
+    import cv2  # type: ignore
+    import numpy as np  # type: ignore
+    import json, time
+    from PIL import Image
+    from pathlib import Path as _P
+    # Resolve path
+    try:
+        sp = (req.stored_path or "").lstrip("/")
+        if not sp:
+            raise HTTPException(status_code=400, detail="stored_path required")
+        abspath = (RAW_ROOT / sp).resolve()
+        root = RAW_ROOT.resolve()
+        if not str(abspath).startswith(str(root)):
+            raise HTTPException(status_code=400, detail="Invalid stored_path")
+        if not abspath.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Bad stored_path: {e}")
+
+    parts = _P(sp).parts
+    key = (req.sha256 or (parts[0] if parts else "file"))
+    out_resid = DERIVED_DIR / "noise" / key
+    out_fft = DERIVED_DIR / "noise_fft" / key
+    out_resid.mkdir(parents=True, exist_ok=True)
+    out_fft.mkdir(parents=True, exist_ok=True)
+    meta_path = out_resid / "meta.json"
+
+    def _noise_metrics_from_gray(gray: np.ndarray):
+        g = gray.astype(np.float32)
+        blur = cv2.GaussianBlur(g, (0,0), sigmaX=1.0, sigmaY=1.0)
+        resid = g - blur
+        resid_abs = np.abs(resid)
+        abs_mean = float(resid_abs.mean())
+        std = float(resid.std())
+        energy = float(np.sqrt((resid**2).mean()))
+        f = np.fft.fft2(g)
+        fshift = np.fft.fftshift(f)
+        mag = np.log(1+np.abs(fshift))
+        h, w = mag.shape
+        cy, cx = h//2, w//2
+        r = int(min(h,w) * 0.12)
+        yy, xx = np.ogrid[:h, :w]
+        mask_low = (yy-cy)**2 + (xx-cx)**2 <= r*r
+        low = float(mag[mask_low].sum())
+        total = float(mag.sum()) + 1e-6
+        low_ratio = max(0.0, min(1.0, low/total))
+        high_ratio = max(0.0, min(1.0, 1.0 - low_ratio))
+        score = max(0.0, min(1.0, 0.5*high_ratio + 0.5*min(1.0, energy/60.0)))
+        resid_vis = (np.clip(resid_abs * (255.0/np.maximum(1.0, resid_abs.mean()*4.0)), 0, 255)).astype(np.uint8)
+        resid_cm = cv2.applyColorMap(resid_vis, cv2.COLORMAP_TWILIGHT)
+        mag_norm = (np.clip((mag/np.max(mag)) * 255.0, 0, 255)).astype(np.uint8)
+        fft_cm = cv2.applyColorMap(mag_norm, cv2.COLORMAP_INFERNO)
+        metrics = {
+            "residual_abs_mean": abs_mean,
+            "residual_std": std,
+            "residual_energy": energy,
+            "fft_low_ratio": low_ratio,
+            "fft_high_ratio": high_ratio,
+            "noise_score": score,
+        }
+        return resid_cm, fft_cm, metrics
+
+    frames_target = int(req.frames or 12)
+    method = (req.method or "both").lower()
+    threshold = float(req.threshold or 0.6)
+    items: list[dict] = []
+    try:
+        ext = abspath.suffix.lower().strip('.')
+        is_video = ext in {"mp4","mov","mkv","avi","webm","m4v"}
+        if is_video:
+            cap = cv2.VideoCapture(str(abspath))
+            if not cap.isOpened():
+                raise HTTPException(status_code=500, detail="Failed to open video for noise")
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+            n = max(1, min(frames_target, total if total > 0 else frames_target))
+            indices = []
+            if total and total > 0:
+                for i in range(n):
+                    idx = int(round((i + 0.5) * (total / n)))
+                    idx = max(0, min(total - 1, idx))
+                    indices.append(idx)
+            else:
+                indices = list(range(n))
+            used = set()
+            for idx in indices:
+                if idx in used: continue
+                used.add(idx)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    continue
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                resid_img, fft_img, m = _noise_metrics_from_gray(gray)
+                t = (idx / fps) if (fps and fps > 0) else None
+                name = f"f_{idx:06d}.png"
+                resid_path = out_resid / name
+                fft_path = out_fft / name
+                if method in ("residual","both"):
+                    cv2.imwrite(str(resid_path), resid_img)
+                if method in ("fft","both"):
+                    cv2.imwrite(str(fft_path), fft_img)
+                items.append({"uri": f"noise/{key}/{name}", "fft_uri": f"noise_fft/{key}/{name}", "time_s": (float(t) if t is not None else None), "index": int(idx), **m})
+            cap.release()
+        else:
+            gray = Image.open(str(abspath)).convert('L')
+            arr = np.array(gray, dtype=np.uint8)
+            resid_img, fft_img, m = _noise_metrics_from_gray(arr)
+            stem = _P(abspath.name).stem
+            resid_path = out_resid / f"{stem}_noise.png"
+            fft_path = out_fft / f"{stem}_noise_fft.png"
+            if method in ("residual","both"):
+                cv2.imwrite(str(resid_path), resid_img)
+            if method in ("fft","both"):
+                cv2.imwrite(str(fft_path), fft_img)
+            items.append({"uri": f"noise/{key}/{resid_path.name}", "fft_uri": f"noise_fft/{key}/{fft_path.name}", "time_s": None, "index": None, **m})
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Noise generation failed: {e}")
+
+    try:
+        meta = {"frames": items, "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    except Exception:
+        pass
+    high = [it.get("index") for it in items if (it.get("noise_score") or 0) >= threshold and it.get("index") is not None]
+    return {"noise_frames": items, "count": len(items), "high_indices": high, "threshold": threshold}
+
+@app.get("/api/noise/list-by-path")
+def list_noise_frames_by_path(stored_path: str, sha256: str | None = None, user = Depends(get_current_user)):
+    import json, re
+    from pathlib import Path as _P
+    sp = (stored_path or "").lstrip("/")
+    if not sp:
+        raise HTTPException(status_code=400, detail="stored_path required")
+    parts = _P(sp).parts
+    key = (sha256 or (parts[0] if parts else "file"))
+    out_resid = DERIVED_DIR / "noise" / key
+    meta_path = out_resid / "meta.json"
+    if meta_path.exists():
+        try:
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+            frames = data.get("frames") or []
+            return {"noise_frames": frames, "count": len(frames)}
+        except Exception:
+            pass
+    # Fallback
+    if not out_resid.exists():
+        return {"noise_frames": [], "count": 0}
+    items: list[dict] = []
+    pat = re.compile(r"^f_(\d+)\.png$", re.IGNORECASE)
+    for p in sorted(out_resid.glob("*.png")):
+        name = p.name
+        m = pat.match(name)
+        idx = int(m.group(1)) if m else None
+        items.append({"uri": f"noise/{key}/{name}", "fft_uri": f"noise_fft/{key}/{name}", "time_s": None, "index": idx})
+    items.sort(key=lambda d: (d.get("index") is None, d.get("index", 0), d.get("uri")))
+    return {"noise_frames": items, "count": len(items)}
+
 # Fallback: allow generating ELA by stored_path for ad-hoc analyses (no DB asset)
 class ELAGenerateByPathReq(BaseModel):
     stored_path: str
