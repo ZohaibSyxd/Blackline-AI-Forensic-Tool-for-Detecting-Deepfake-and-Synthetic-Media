@@ -25,7 +25,7 @@ Run:
 from __future__ import annotations
 import os, uuid, shutil
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.responses import FileResponse
@@ -1421,6 +1421,117 @@ def list_ela_frames_by_path(stored_path: str, sha256: str | None = None, user = 
         })
     items.sort(key=lambda d: (d.get("index") is None, d.get("index", 0), d.get("uri")))
     return {"ela_frames": items, "count": len(items)}
+
+
+# Download ZIP helpers for derived assets (ELA/LBP/Noise)
+def _zip_dir_to_temp(path: Path, prefix: str = "frames") -> str:
+    import tempfile, zipfile
+    tf = tempfile.NamedTemporaryFile(delete=False, suffix='.zip', prefix=prefix+'_')
+    tf.close()
+    zip_path = Path(tf.name)
+    # Create zip from directory contents
+    with zipfile.ZipFile(str(zip_path), mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+        for root, _, files in os.walk(path):
+            for fname in files:
+                fpath = Path(root) / fname
+                # arcname should be relative to the requested base path
+                arcname = os.path.relpath(str(fpath), str(path))
+                zf.write(str(fpath), arcname)
+    return str(zip_path)
+
+
+@app.get('/api/ela/download')
+def download_ela(asset_id: int, user = Depends(get_current_user), db: Session = Depends(get_db), background_tasks: BackgroundTasks = None):
+    # Lookup asset and derived dir
+    asset = db.query(models_db.Asset).filter(models_db.Asset.id == asset_id, models_db.Asset.user_id == user.id).one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail='Asset not found')
+    key = asset.sha256 or f"asset_{asset.id}"
+    out_dir = DERIVED_DIR / 'ela' / key
+    if not out_dir.exists():
+        raise HTTPException(status_code=404, detail='No ELA frames available')
+    zip_path = _zip_dir_to_temp(out_dir, prefix=f'ela_{key}_')
+    if background_tasks:
+        background_tasks.add_task(os.unlink, zip_path)
+    return FileResponse(zip_path, media_type='application/zip', filename=f'{key}_ela.zip')
+
+
+@app.get('/api/ela/download-by-path')
+def download_ela_by_path(stored_path: str, sha256: str | None = None, user = Depends(get_current_user), background_tasks: BackgroundTasks = None):
+    sp = (stored_path or '').lstrip('/')
+    if not sp:
+        raise HTTPException(status_code=400, detail='stored_path required')
+    parts = Path(sp).parts
+    key = (sha256 or (parts[0] if parts else 'file'))
+    out_dir = DERIVED_DIR / 'ela' / key
+    if not out_dir.exists():
+        raise HTTPException(status_code=404, detail='No ELA frames available')
+    zip_path = _zip_dir_to_temp(out_dir, prefix=f'ela_{key}_')
+    if background_tasks:
+        background_tasks.add_task(os.unlink, zip_path)
+    return FileResponse(zip_path, media_type='application/zip', filename=f'{key}_ela.zip')
+
+
+@app.get('/api/lbp/download')
+def download_lbp(asset_id: int, user = Depends(get_current_user), db: Session = Depends(get_db), background_tasks: BackgroundTasks = None):
+    asset = db.query(models_db.Asset).filter(models_db.Asset.id == asset_id, models_db.Asset.user_id == user.id).one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail='Asset not found')
+    key = asset.sha256 or f"asset_{asset.id}"
+    out_dir = DERIVED_DIR / 'lbp' / key
+    if not out_dir.exists():
+        raise HTTPException(status_code=404, detail='No LBP frames available')
+    zip_path = _zip_dir_to_temp(out_dir, prefix=f'lbp_{key}_')
+    if background_tasks:
+        background_tasks.add_task(os.unlink, zip_path)
+    return FileResponse(zip_path, media_type='application/zip', filename=f'{key}_lbp.zip')
+
+
+@app.get('/api/lbp/download-by-path')
+def download_lbp_by_path(stored_path: str, sha256: str | None = None, user = Depends(get_current_user), background_tasks: BackgroundTasks = None):
+    sp = (stored_path or '').lstrip('/')
+    if not sp:
+        raise HTTPException(status_code=400, detail='stored_path required')
+    parts = Path(sp).parts
+    key = (sha256 or (parts[0] if parts else 'file'))
+    out_dir = DERIVED_DIR / 'lbp' / key
+    if not out_dir.exists():
+        raise HTTPException(status_code=404, detail='No LBP frames available')
+    zip_path = _zip_dir_to_temp(out_dir, prefix=f'lbp_{key}_')
+    if background_tasks:
+        background_tasks.add_task(os.unlink, zip_path)
+    return FileResponse(zip_path, media_type='application/zip', filename=f'{key}_lbp.zip')
+
+
+@app.get('/api/noise/download')
+def download_noise(asset_id: int, user = Depends(get_current_user), db: Session = Depends(get_db), background_tasks: BackgroundTasks = None):
+    asset = db.query(models_db.Asset).filter(models_db.Asset.id == asset_id, models_db.Asset.user_id == user.id).one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail='Asset not found')
+    key = asset.sha256 or f"asset_{asset.id}"
+    out_dir = DERIVED_DIR / 'noise' / key
+    if not out_dir.exists():
+        raise HTTPException(status_code=404, detail='No Noise frames available')
+    zip_path = _zip_dir_to_temp(out_dir, prefix=f'noise_{key}_')
+    if background_tasks:
+        background_tasks.add_task(os.unlink, zip_path)
+    return FileResponse(zip_path, media_type='application/zip', filename=f'{key}_noise.zip')
+
+
+@app.get('/api/noise/download-by-path')
+def download_noise_by_path(stored_path: str, sha256: str | None = None, user = Depends(get_current_user), background_tasks: BackgroundTasks = None):
+    sp = (stored_path or '').lstrip('/')
+    if not sp:
+        raise HTTPException(status_code=400, detail='stored_path required')
+    parts = Path(sp).parts
+    key = (sha256 or (parts[0] if parts else 'file'))
+    out_dir = DERIVED_DIR / 'noise' / key
+    if not out_dir.exists():
+        raise HTTPException(status_code=404, detail='No Noise frames available')
+    zip_path = _zip_dir_to_temp(out_dir, prefix=f'noise_{key}_')
+    if background_tasks:
+        background_tasks.add_task(os.unlink, zip_path)
+    return FileResponse(zip_path, media_type='application/zip', filename=f'{key}_noise.zip')
 
 # ------------------------- Auth Endpoints (Prototype) -----------------------
 @app.post("/api/auth/login")

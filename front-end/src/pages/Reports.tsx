@@ -615,6 +615,38 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
           <div>
             <h2>Reports</h2>
           </div>
+          <div className="reports-actions">
+            <button className="btn" onClick={() => {
+              // Export all analyses for current page as CSV
+              try {
+                const list = activePageKey ? getAnalysesForPage(activePageKey) : getAllAnalyses();
+                if (!list.length) return;
+                const headers = Object.keys(list[0]).filter(k => k !== 'raw');
+                // build CSV rows
+                const rows = list.map(r => {
+                  const copy: any = { ...r };
+                  copy.summary = JSON.stringify(copy.summary || {});
+                  copy.analyzedAt = new Date(copy.analyzedAt).toISOString();
+                  delete copy.raw;
+                  return copy;
+                });
+                const csv = [headers.join(',')].concat(rows.map(row => headers.map(h => '"'+String((row as any)[h]||'').replace(/"/g,'""')+'"').join(','))).join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = `${activePageKey||'analyses'}_export.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+              } catch (e) { console.error(e); }
+            }}>Export CSV</button>
+            <button className="btn ghost" onClick={() => {
+              // Export raw JSON bundle
+              try {
+                const list = activePageKey ? getAnalysesForPage(activePageKey) : getAllAnalyses();
+                if (!list.length) return;
+                const blob = new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = `${activePageKey||'analyses'}_export.json`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+              } catch (e) { console.error(e); }
+            }}>Export JSON</button>
+          </div>
         </div>
         {/* Page cards removed from Reports — they appear only on Dashboard */}
         {/* Per-analysis summary cards removed — Reports now shows aggregates and the table only */}
@@ -975,6 +1007,28 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                       <button className="btn ghost" onClick={handleReloadNoise} disabled={noiseLoading}>
                                         {noiseLoading && noiseAction==='reload' ? 'Reloading…' : 'Reload'}
                                       </button>
+                                      <button className="btn ghost" onClick={async ()=>{
+                                        try {
+                                          const tok = getAuthState().token;
+                                          const numericId = ((): number | null => { const aId = (selected as any)?.raw?.asset?.asset_id; const n = Number(aId); return Number.isFinite(n) && String(n) === String(aId).trim() ? n : null; })();
+                                          let url: string; let filename = 'noise.zip';
+                                          if (numericId !== null) {
+                                            url = `${API_BASE}/api/noise/download?asset_id=${encodeURIComponent(String(numericId))}`;
+                                            filename = `${(selected as any)?.raw?.asset?.sha256 || ('asset_'+String(numericId))}_noise.zip`;
+                                          } else {
+                                            const sp = (selected as any)?.raw?.asset?.stored_path; const sha = (selected as any)?.raw?.asset?.sha256; if (!sp) { alert('No stored_path available for download'); return; }
+                                            url = `${API_BASE}/api/noise/download-by-path?stored_path=${encodeURIComponent(String(sp))}${sha?`&sha256=${encodeURIComponent(String(sha))}`:''}`;
+                                            filename = `${sha || String((sp||'').split('/')[0])}_noise.zip`;
+                                          }
+                                          const headers: Record<string,string> = {};
+                                          if (tok) headers['Authorization'] = `Bearer ${tok}`;
+                                          const res = await fetch(url, { headers });
+                                          if (!res.ok) throw new Error(await res.text());
+                                          const blob = await res.blob();
+                                          const blobUrl = URL.createObjectURL(blob);
+                                          const a = document.createElement('a'); a.href = blobUrl; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(blobUrl);
+                                        } catch (e:any) { console.error(e); alert('Failed to start download: '+(e?.message||e)); }
+                                      }}>Download All</button>
                                       <label className="chk" title="Show only top-K frames by noise score">
                                         <input type="checkbox" checked={noiseTopOnly} onChange={(e)=>{ setNoiseTopOnly(e.currentTarget.checked); setNoiseSelectedIdx(0); }} /> Top-K only
                                       </label>
@@ -1219,6 +1273,28 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                       <button className="btn ghost" onClick={handleReloadELA} disabled={elaLoading}>
                                         {elaLoading && elaAction==='reload' ? 'Reloading…' : 'Reload'}
                                       </button>
+                                      <button className="btn ghost" onClick={async ()=>{
+                                        try {
+                                          const tok = getAuthState().token;
+                                          const numericId = ((): number | null => { const aId = (selected as any)?.raw?.asset?.asset_id; const n = Number(aId); return Number.isFinite(n) && String(n) === String(aId).trim() ? n : null; })();
+                                          let url: string; let filename = 'ela.zip';
+                                          if (numericId !== null) {
+                                            url = `${API_BASE}/api/ela/download?asset_id=${encodeURIComponent(String(numericId))}`;
+                                            filename = `${(selected as any)?.raw?.asset?.sha256 || ('asset_'+String(numericId))}_ela.zip`;
+                                          } else {
+                                            const sp = (selected as any)?.raw?.asset?.stored_path; const sha = (selected as any)?.raw?.asset?.sha256; if (!sp) { alert('No stored_path available for download'); return; }
+                                            url = `${API_BASE}/api/ela/download-by-path?stored_path=${encodeURIComponent(String(sp))}${sha?`&sha256=${encodeURIComponent(String(sha))}`:''}`;
+                                            filename = `${sha || String((sp||'').split('/')[0])}_ela.zip`;
+                                          }
+                                          const headers: Record<string,string> = {};
+                                          if (tok) headers['Authorization'] = `Bearer ${tok}`;
+                                          const res = await fetch(url, { headers });
+                                          if (!res.ok) throw new Error(await res.text());
+                                          const blob = await res.blob();
+                                          const blobUrl = URL.createObjectURL(blob);
+                                          const a = document.createElement('a'); a.href = blobUrl; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(blobUrl);
+                                        } catch (e:any) { console.error(e); alert('Failed to start download: '+(e?.message||e)); }
+                                      }}>Download All</button>
                                       <label className="chk" title="Show only Top-K frames">
                                         <input type="checkbox" checked={elaTopOnly} onChange={(e)=>{ setElaTopOnly(e.currentTarget.checked); setElaSelectedIdx(0); }} /> Top-K only
                                       </label>
@@ -1474,6 +1550,28 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                       <button className="btn ghost" onClick={handleReloadLBP} disabled={lbpLoading}>
                                         {lbpLoading && lbpAction==='reload' ? 'Reloading…' : 'Reload'}
                                       </button>
+                                      <button className="btn ghost" onClick={async ()=>{
+                                        try {
+                                          const tok = getAuthState().token;
+                                          const numericId = ((): number | null => { const aId = (selected as any)?.raw?.asset?.asset_id; const n = Number(aId); return Number.isFinite(n) && String(n) === String(aId).trim() ? n : null; })();
+                                          let url: string; let filename = 'lbp.zip';
+                                          if (numericId !== null) {
+                                            url = `${API_BASE}/api/lbp/download?asset_id=${encodeURIComponent(String(numericId))}`;
+                                            filename = `${(selected as any)?.raw?.asset?.sha256 || ('asset_'+String(numericId))}_lbp.zip`;
+                                          } else {
+                                            const sp = (selected as any)?.raw?.asset?.stored_path; const sha = (selected as any)?.raw?.asset?.sha256; if (!sp) { alert('No stored_path available for download'); return; }
+                                            url = `${API_BASE}/api/lbp/download-by-path?stored_path=${encodeURIComponent(String(sp))}${sha?`&sha256=${encodeURIComponent(String(sha))}`:''}`;
+                                            filename = `${sha || String((sp||'').split('/')[0])}_lbp.zip`;
+                                          }
+                                          const headers: Record<string,string> = {};
+                                          if (tok) headers['Authorization'] = `Bearer ${tok}`;
+                                          const res = await fetch(url, { headers });
+                                          if (!res.ok) throw new Error(await res.text());
+                                          const blob = await res.blob();
+                                          const blobUrl = URL.createObjectURL(blob);
+                                          const a = document.createElement('a'); a.href = blobUrl; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(blobUrl);
+                                        } catch (e:any) { console.error(e); alert('Failed to start download: '+(e?.message||e)); }
+                                      }}>Download All</button>
                                       <label className="chk" title="Show only Top-K frames">
                                         <input type="checkbox" checked={lbpTopOnly} onChange={(e)=>{ setLbpTopOnly(e.currentTarget.checked); setLbpSelectedIdx(0); }} /> Top-K only
                                       </label>
