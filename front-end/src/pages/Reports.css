@@ -42,6 +42,109 @@
 .heatcell.intensity-3 { background: #fb7185; }
 .heatcell.intensity-4 { background: #ef4444; }
 
+/* Positioning classes for scrubber ticks without inline styles (ft-p0..ft-p100) */
+.frame-scrubber .scrubber-ticks .tick.ft-p0 { left: 0%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p1 { left: 1%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p2 { left: 2%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p3 { left: 3%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p4 { left: 4%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p5 { left: 5%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p6 { left: 6%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p7 { left: 7%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p8 { left: 8%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p9 { left: 9%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p10 { left: 10%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p11 { left: 11%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p12 { left: 12%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p13 { left: 13%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p14 { left: 14%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p15 { left: 15%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p16 { left: 16%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p17 { left: 17%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p18 { left: 18%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p19 { left: 19%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p20 { left: 20%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p21 { left: 21%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p22 { left: 22%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p23 { left: 23%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p24 { left: 24%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p25 { left: 25%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p26 { left: 26%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p27 { left: 27%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p28 { left: 28%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p29 { left: 29%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p30 { left: 30%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p31 { left: 31%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p32 { left: 32%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p33 { left: 33%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p34 { left: 34%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p35 { left: 35%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p36 { left: 36%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p37 { left: 37%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p38 { left: 38%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p39 { left: 39%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p40 { left: 40%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p41 { left: 41%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p42 { left: 42%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p43 { left: 43%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p44 { left: 44%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p45 { left: 45%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p46 { left: 46%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p47 { left: 47%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p48 { left: 48%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p49 { left: 49%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p50 { left: 50%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p51 { left: 51%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p52 { left: 52%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p53 { left: 53%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p54 { left: 54%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p55 { left: 55%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p56 { left: 56%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p57 { left: 57%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p58 { left: 58%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p59 { left: 59%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p60 { left: 60%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p61 { left: 61%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p62 { left: 62%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p63 { left: 63%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p64 { left: 64%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p65 { left: 65%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p66 { left: 66%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p67 { left: 67%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p68 { left: 68%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p69 { left: 69%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p70 { left: 70%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p71 { left: 71%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p72 { left: 72%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p73 { left: 73%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p74 { left: 74%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p75 { left: 75%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p76 { left: 76%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p77 { left: 77%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p78 { left: 78%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p79 { left: 79%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p80 { left: 80%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p81 { left: 81%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p82 { left: 82%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p83 { left: 83%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p84 { left: 84%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p85 { left: 85%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p86 { left: 86%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p87 { left: 87%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p88 { left: 88%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p89 { left: 89%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p90 { left: 90%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p91 { left: 91%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p92 { left: 92%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p93 { left: 93%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p94 { left: 94%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p95 { left: 95%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p96 { left: 96%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p97 { left: 97%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p98 { left: 98%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p99 { left: 99%; }
+.frame-scrubber .scrubber-ticks .tick.ft-p100 { left: 100%; }
+
 /* New analysis table styles */
 .report-stats { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; margin: 0 0 22px 0; }
 .report-stats .stat { background:#fff; padding:14px 18px; border:1px solid #e5e7eb; border-radius:8px; text-align:center; margin: 0; }
@@ -183,6 +286,17 @@
 /* Highlight expanded content */
 .overlay-block[open] .overlay-content{ background:#fff; border:1px solid var(--hairline, #e5e7eb); border-top:0; border-radius:0 0 10px 10px; padding:14px 12px; margin-top:0; }
 :root.dark .overlay-block[open] .overlay-content{ background:#0f172a; border-color: var(--border); }
+
+/* Video frame scrubber */
+.frame-scrubber{ position:relative; margin:10px 0 6px; padding:4px 0; }
+.frame-scrubber .scrubber-ticks{ position:absolute; left:10px; right:10px; top:-4px; height:14px; z-index:2; pointer-events:none; }
+.frame-scrubber .scrubber-ticks .tick{ position:absolute; top:0; width:10px; height:10px; border-radius:999px; background:#9ca3af; border:1px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,0.05); transform:translateX(-50%); cursor:pointer; pointer-events:auto; }
+.frame-scrubber .scrubber-ticks .tick.alert{ background:#ef4444; }
+.frame-scrubber .scrubber-range{ width:100%; appearance:none; height:6px; border-radius:999px; background:#e5e7eb; outline:none; }
+.frame-scrubber .scrubber-range::-webkit-slider-thumb{ appearance:none; width:14px; height:14px; border-radius:50%; background:var(--accent); border:1px solid var(--accent); cursor:pointer; box-shadow:0 2px 6px rgba(var(--accent-rgb),0.35); }
+.frame-scrubber .scrubber-range::-moz-range-thumb{ width:14px; height:14px; border-radius:50%; background:var(--accent); border:1px solid var(--accent); cursor:pointer; box-shadow:0 2px 6px rgba(var(--accent-rgb),0.35); }
+.frame-scrubber .scrubber-meta{ display:flex; justify-content:flex-end; gap:6px; font-size:12px; color:#6b7280; margin-top:4px; }
+:root.dark .frame-scrubber .scrubber-range{ background:#1e293b; }
 
 /* Timeline bar for frame markers */
 .frame-timeline{ position:relative; margin-top:8px; }
@@ -453,6 +567,12 @@
 :root.dark .reports-page .btn { background:#1f2937; color: var(--text); border-color: var(--border); }
 :root.dark .reports-page .btn.primary { background: var(--accent); color: var(--accent-foreground); border: none; }
 :root.dark .reports-page .btn.ghost { background: transparent; color: var(--text); }
+
+/* Ensure destructive button shows red when selection is active (order override) */
+.reports-page .btn.danger { background:#dc2626; border-color:#dc2626; color:#fff; }
+.reports-page .btn.danger:hover { background:#b91c1c; }
+:root.dark .reports-page .btn.danger { background:#b91c1c; border-color:#b91c1c; }
+:root.dark .reports-page .btn.danger:hover { background:#991b1b; }
 
 /* ELA timeline marker positions 0..100 */
 .ela-timeline .ft-mark.ft-p0{ left:0% }

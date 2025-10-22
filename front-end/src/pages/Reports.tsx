@@ -233,21 +233,24 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
     }, 50);
   }, [analyses, filePage]);
 
-  // Close detail on click outside or Escape
+  // Keep details open when interacting outside the table (e.g., opening Settings),
+  // but still allow closing by pressing ESC or clicking empty space within the table area.
   useEffect(() => {
     if (!selected) return;
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setSelected(null); }
-    function onClick(e: MouseEvent) {
-      if (!analysisRegionRef.current) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelected(null); };
+    const onClick = (e: MouseEvent) => {
       const region = analysisRegionRef.current;
-      if (region.contains(e.target as Node)) {
-        const detail = region.querySelector('.analysis-detail');
-        if (detail && detail.contains(e.target as Node)) return;
-        const row = (e.target as HTMLElement).closest('.analysis-table .tr');
-        if (row) return;
-      }
+      if (!region) return;
+      // Ignore clicks completely if they are outside the analysis table region
+      if (!region.contains(e.target as Node)) return;
+      // Inside region: keep open if click is inside the details panel or a table row
+      const detail = region.querySelector('.analysis-detail');
+      if (detail && detail.contains(e.target as Node)) return;
+      const row = (e.target as HTMLElement).closest('.analysis-table .tr');
+      if (row) return;
+      // Clicked somewhere within the table container but not on details or a row → close
       setSelected(null);
-    }
+    };
     document.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onClick);
     return () => { document.removeEventListener('keydown', onKey); document.removeEventListener('mousedown', onClick); };
@@ -259,6 +262,13 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
     setMediaDuration(null);
     setElaSelectedIdx(null);
     setLbpSelectedIdx(null);
+    // Clear any frame overrides carried over from the previously selected item.
+    // Otherwise, the viewer will reuse the old frames for the newly selected file
+    // and appear as if generation applied to all files.
+    setElaFramesOverride(null);
+    setLbpFramesOverride(null);
+    setNoiseFramesOverride(null);
+    setNoiseSelectedIdx(null);
   }, [selected]);
 
   // Resolve playback URL for the selected item (once per selection)
@@ -800,6 +810,95 @@ const Reports: React.FC<{ filePage?: string }> = ({ filePage }) => {
                                             onLoadedMetadata={(e)=>{ try { const d = (e.currentTarget as HTMLVideoElement).duration; if (Number.isFinite(d) && d>0) setMediaDuration(d); } catch {} }}
                                             onTimeUpdate={(e)=>{ try { setVideoTime((e.currentTarget as HTMLVideoElement).currentTime || 0); } catch {} }}
                                           />
+                                        </div>
+                                      )}
+                                      {/* Always show a scrubber to navigate the entire video timeline */}
+                                      {detailVideoSrc && (typeof effDuration === 'number' && effDuration > 0) && (
+                                        <div className="frame-scrubber" role="region" aria-label="Frame scrubber">
+                                          {(() => {
+                                            const fpsVal = (selected as any)?.raw?.summary?.frame_fps as number | undefined;
+                                            const fpsFallback = (selected?.summary?.fps as number | undefined);
+                                            const effFps = (typeof fpsVal==='number' && fpsVal>0) ? fpsVal : (typeof fpsFallback==='number' && fpsFallback>0 ? fpsFallback : undefined);
+                                            const step = effFps ? (1/effFps) : 0.01;
+                                            // Build tick marks from per-frame scores (if available),
+                                            // else fall back to any available analysis frames (ELA/LBP/Noise)
+                                            let ticks = Array.isArray(fs) && fs.length>0 ? fs.map((f)=>{
+                                              const t = f.time_s!=null ? f.time_s : (effFps ? (f.index/Math.max(1, effFps)) : undefined);
+                                              const leftPct = t!=null ? Math.max(0, Math.min(100, Math.round((t/effDuration)*100))) : 0;
+                                              const probPct = Math.max(0, Math.min(100, Math.round(f.prob*100)));
+                                              const alert = f.prob>=0.5;
+                                              const pctClass = `ft-p${leftPct}`;
+                                              return { t, leftPct, pctClass, probPct, alert, idx: f.index };
+                                            }) : [];
+
+                                            if (!ticks.length) {
+                                              const candTimes: Array<{ t:number; source:string; idx?:number }> = [];
+                                              const pushTime = (source:string, t?:number|null, idx?:number)=>{
+                                                if (typeof t === 'number' && Number.isFinite(t) && t>=0 && t<=effDuration) candTimes.push({ t, source, idx });
+                                              };
+                                              // Collect times from ELA/LBP/Noise frames if present
+                                              elaFrames.forEach((f, i)=> pushTime('ela', f.time_s!=null? f.time_s : (effFps && typeof f.index==='number'? (f.index/Math.max(1,effFps)) : undefined), f.index ?? i));
+                                              lbpFrames.forEach((f, i)=> pushTime('lbp', f.time_s!=null? f.time_s : (effFps && typeof f.index==='number'? (f.index/Math.max(1,effFps)) : undefined), f.index ?? i));
+                                              noiseFrames.forEach((f, i)=> pushTime('noise', f.time_s!=null? f.time_s : (effFps && typeof f.index==='number'? (f.index/Math.max(1,effFps)) : undefined), f.index ?? i));
+                                              // Dedupe by time rounded to centiseconds to avoid near-duplicates
+                                              const seen = new Set<string>();
+                                              const uniq = candTimes
+                                                .sort((a,b)=> a.t-b.t)
+                                                .filter(({t})=>{ const k = (Math.round(t*100)).toString(); if (seen.has(k)) return false; seen.add(k); return true; });
+                                              ticks = uniq.map(({t, source, idx})=>{
+                                                const leftPct = Math.max(0, Math.min(100, Math.round((t/effDuration)*100)));
+                                                const pctClass = `ft-p${leftPct}`;
+                                                return { t, leftPct, pctClass, probPct: undefined as number|undefined, alert: false, idx, source } as any;
+                                              });
+                                            }
+
+                                            // Still nothing? Generate evenly spaced guide ticks so the scrubber always has clickable nodes
+                                            if (!ticks.length) {
+                                              const desired = 24; // default to 24 evenly spaced guide ticks
+                                              const step = (effDuration || 10) / Math.max(1, (desired - 1));
+                                              const seenPct = new Set<number>();
+                                              for (let i = 0; i < desired; i++) {
+                                                const t = Math.min(effDuration, step * i);
+                                                const leftPct = Math.max(0, Math.min(100, Math.round((t/effDuration)*100)));
+                                                if (seenPct.has(leftPct)) continue;
+                                                seenPct.add(leftPct);
+                                                const pctClass = `ft-p${leftPct}`;
+                                                ticks.push({ t, leftPct, pctClass, probPct: undefined, alert: false, idx: i, source: 'grid' } as any);
+                                              }
+                                            }
+                                            return (
+                                              <>
+                                                {ticks.length>0 && (
+                                                  <div className="scrubber-ticks" aria-hidden="false">
+                                                    {ticks.map((it,i)=> (
+                                                      <button
+                                                        key={i}
+                                                        type="button"
+                                                        className={`tick ${it.pctClass} ${it.alert?'alert':''}`}
+                                                        title={typeof it.probPct==='number' ? `frame #${it.idx} • ${it.probPct.toFixed(0)}%` : (it.idx!=null?`frame #${it.idx}`: `t=${it.t!=null?it.t.toFixed(2)+'s':''}`)}
+                                                        onClick={()=>{ if (it.t!=null) jumpToTime(it.t, false); }}
+                                                      />
+                                                    ))}
+                                                  </div>
+                                                )}
+                                                <input
+                                                  type="range"
+                                                  min={0}
+                                                  max={effDuration}
+                                                  step={step}
+                                                  value={Math.max(0, Math.min(effDuration, videoTime || 0))}
+                                                  onChange={(e)=>{ const t = Number(e.currentTarget.value)||0; jumpToTime(Math.max(0, Math.min(effDuration, t)), false); }}
+                                                  className="scrubber-range"
+                                                  aria-label="Seek by time in seconds"
+                                                />
+                                                <div className="scrubber-meta">
+                                                  <span>{(Math.max(0, Math.min(effDuration, videoTime || 0))).toFixed(2)}s</span>
+                                                  <span> / </span>
+                                                  <span>{effDuration.toFixed(2)}s</span>
+                                                </div>
+                                              </>
+                                            );
+                                          })()}
                                         </div>
                                       )}
                                       {fs && Array.isArray(fs) && fs.length>0 && (
